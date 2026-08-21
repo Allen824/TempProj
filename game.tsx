@@ -30,13 +30,15 @@ const Game = () => {
         //Key Room
         { walls: ["north"], brittle: [], row: 6, col: 5},
         { walls: ["north"], brittle: [], row: 6, col: 6}
-    ])
+    ]) 
     const [guardData, setGuardData] = useState([
-        { type: "grunt", state: "patrol", row: 4, col: 1, pattern: "fourway", direction: "north", status: "fine", statusLength: 0},
-        { type: "officer", state: "patrol", row: 4, col: 5, pattern: "wander", direction: "north", status: "fine", statusLength: 0}
+        { id: 1, type: "grunt", state: "patrol", row: 2, col: 0, 
+            pattern: "fourway", direction: "north", status: "fine", statusLength: 0, stateLength: 0, suspicionRow: null as number | null,
+            suspicionCol: null as number | null,},
+        //{ id: 2, type: "officer", state: "patrol", row: 4, col: 5, pattern: "wander", direction: "north", status: "fine", statusLength: 0}
     ])
     const [itemData, setItemData] = useState([{ type: 'key', row: 6, col: 6, isCollected: false }, 
-    { type: 'cloak', row: 0, col: 5, isCollected: false},
+    { type: 'blind', row: 0, col: 5, isCollected: false},
     { type: 'key', row: 0, col: 3, isCollected: false}])
     const [availableInteractions, setAvailableInteractions] = useState<
     { row: number; col: number; type: string }[]
@@ -67,10 +69,15 @@ const Game = () => {
         console.log("You win!");
         router.replace('/win');
     }
+
+    const handleCapture = () => {
+        console.log("You are in capture range")
+        router.replace('/lose');
+    }
     const getOccupied = (row: number, col: number) => {
         const item = getItemData(row, col)
         if (getPlayerAt.some((player) => player.row === row && player.col === col)) {
-            return "HERE"
+            return "YOU"
         }
 
         if(getGuardData(row, col)) {
@@ -95,6 +102,35 @@ const Game = () => {
     const getGuardData = (row: number, col: number) => {
         return guardData.find((guard) => guard.row === row && guard.col === col);
     }
+
+    const getGuardVisuals = (row: number, col: number, text: boolean) => {
+        const guard = guardData.find(
+            (guard) => guard.row === row && guard.col === col
+        );
+
+        if (!guard) {
+            return null;
+        }
+
+        let returnText = ''
+
+        if (guard.state === "patrol") {
+            returnText = (text) ? "-" : "neutral"
+            return returnText    
+        }
+
+        if (guard.state === "suspicion") {
+            returnText = (text) ? "?" : "suspicion"
+            return returnText
+        }
+
+        if (guard.state === "alert") {
+            returnText = (text) ? "!" : "alert"
+            return returnText
+        }
+
+        return null;
+    };
 
     const getItemData = (row: number, col: number) => {
         return itemData.find(
@@ -122,12 +158,215 @@ const Game = () => {
         }
     }
 
-    const advanceGuards = () => {
+    const advanceGuards = (row: number, col: number) => {
         setGuardData(prev =>
             prev.map(guard => {
-                if (guard.pattern === "wander") {
+                if(guard.state === "alert") {
                     let newRow = guard.row;
                     let newCol = guard.col;
+
+                    const directions = [
+                        { name: "north", row: -1, col: 0 },
+                        { name: "south", row: 1, col: 0 },
+                        { name: "west", row: 0, col: -1 },  
+                        { name: "east", row: 0, col: 1 }
+                    ];
+
+                    const openSpaces = directions.filter(dir => {
+                        const nextRow = guard.row + dir.row;
+                        const nextCol = guard.col + dir.col;
+
+                        return (
+                            nextRow >= 0 &&
+                            nextRow < grid.length &&
+                            nextCol >= 0 &&
+                            nextCol < grid[0].length &&
+                            notObstructed(nextRow, nextCol) &&
+                            canMove(guard.row, guard.col, nextRow, nextCol)
+
+                        );
+                    });
+
+                    if (openSpaces.length > 0) {
+                        const rowDistance = Math.abs(guard.row - row);
+                        const colDistance = Math.abs(guard.col - col);
+
+                        let preferredDirection;
+
+                        if (rowDistance >= colDistance) {
+                            preferredDirection = row < guard.row ? "north" : "south";
+                        } else {
+                            preferredDirection = col < guard.col ? "west" : "east";
+                        }
+
+                        let move = openSpaces.find(
+                            dir => dir.name === preferredDirection
+                        );
+
+                        if (!move) {
+                            if (rowDistance >= colDistance) {
+                                const alternateDirection =
+                                    col < guard.col ? "west" : "east";
+
+                                move = openSpaces.find(
+                                    dir => dir.name === alternateDirection
+                                );
+                            } else {
+                                const alternateDirection =
+                                    row < guard.row ? "north" : "south";
+
+                                move = openSpaces.find(
+                                    dir => dir.name === alternateDirection
+                                );
+                            }
+                        }
+
+                        if (move) {
+                            newRow = guard.row + move.row;
+                            newCol = guard.col + move.col;
+                        }
+                    }
+
+                    const distance =
+                        Math.abs(newRow - row) +
+                        Math.abs(newCol - col);
+
+                    if (
+                        distance === 0 ||
+                        (distance === 1 && canMove(newRow, newCol, row, col))
+                    ) {
+                        handleCapture();
+                    }
+
+                    return {
+                        ...guard,
+                        row: newRow,
+                        col: newCol,
+                    }
+                }
+                else if (guard.state === "suspicion") {
+                    console.log('here')
+                    console.log(guard.suspicionRow + " " + guard.suspicionCol)
+                    if (guard.suspicionRow === null || guard.suspicionCol === null) {
+                        return guard;
+                    }
+                    console.log(guard.suspicionRow + " " + guard.suspicionCol)
+                    let newRow = guard.row;
+                    let newCol = guard.col;
+
+                    const directions = [
+                        { name: "north", row: -1, col: 0 },
+                        { name: "south", row: 1, col: 0 },
+                        { name: "west", row: 0, col: -1 },
+                        { name: "east", row: 0, col: 1 }
+                    ];
+
+                    const openSpaces = directions.filter(dir => {
+                        const nextRow = guard.row + dir.row;
+                        const nextCol = guard.col + dir.col;
+
+                        return (
+                            nextRow >= 0 &&
+                            nextRow < grid.length &&
+                            nextCol >= 0 &&
+                            nextCol < grid[0].length &&
+                            notObstructed(nextRow, nextCol) &&
+                            canMove(guard.row, guard.col, nextRow, nextCol)
+                        );
+                    });
+
+                    if (openSpaces.length > 0) {
+                        const rowDistance = Math.abs(
+                            guard.row - guard.suspicionRow
+                        );
+
+                        const colDistance = Math.abs(
+                            guard.col - guard.suspicionCol
+                        );
+
+                        let preferredDirection;
+
+                        if (rowDistance >= colDistance) {
+                            preferredDirection =
+                                guard.suspicionRow < guard.row
+                                    ? "north"
+                                    : "south";
+                        } else {
+                            preferredDirection =
+                                guard.suspicionCol < guard.col
+                                    ? "west"
+                                    : "east";
+                        }
+
+                        let move = openSpaces.find(
+                            dir => dir.name === preferredDirection
+                        );
+
+                        if (!move) {
+                            if (rowDistance >= colDistance) {
+                                const alternateDirection =
+                                    guard.suspicionCol < guard.col
+                                        ? "west"
+                                        : "east";
+
+                                move = openSpaces.find(
+                                    dir => dir.name === alternateDirection
+                                );
+                            } else {
+                                const alternateDirection =
+                                    guard.suspicionRow < guard.row
+                                        ? "north"
+                                        : "south";
+
+                                move = openSpaces.find(
+                                    dir => dir.name === alternateDirection
+                                );
+                            }
+                        }
+
+                        if (move) {
+                            newRow = guard.row + move.row;
+                            newCol = guard.col + move.col;
+                        }
+                    }
+
+                    const updatedGuard = {
+                        ...guard,
+                        row: newRow,
+                        col: newCol
+                    };
+
+                    const spottedPlayer = canSuspicionGuardSeePlayer(
+                        updatedGuard,
+                        row,
+                        col
+                    );
+
+                    const reachedSuspicionLocation =
+                        newRow === guard.suspicionRow &&
+                        newCol === guard.suspicionCol;
+
+                    return {
+                        ...guard,
+                        row: newRow,
+                        col: newCol,
+                        state: spottedPlayer
+                            ? "alert"
+                            : reachedSuspicionLocation
+                                ? "patrol"
+                                : guard.state,
+                        suspicionRow: spottedPlayer || reachedSuspicionLocation
+                            ? null
+                            : guard.suspicionRow,
+                        suspicionCol: spottedPlayer || reachedSuspicionLocation
+                            ? null
+                            : guard.suspicionCol
+                    };
+                }
+
+            else if (guard.pattern === "wander") {
+                let newRow = guard.row;
+                let newCol = guard.col;
 
                 const directions = [
                     { name: "north", row: -1, col: 0 },
@@ -192,21 +431,33 @@ const Game = () => {
                     }
                 }
 
-                return {
+                const updatedGuard = {
                     ...guard,
                     row: newRow,
                     col: newCol,
+                    direction: newDirection
+                };
+
+                const spottedPlayer = canGuardSeePlayer(updatedGuard, row, col);
+
+                return {
+                    ...guard,
                     direction: newDirection,
+                    state: spottedPlayer ? "suspicion" : guard.state,
                     statusLength: guard.status === "Blind"
                         ? guard.statusLength - 1
                         : guard.statusLength,
                     status: guard.status === "Blind" && guard.statusLength - 1 <= 0
                         ? "fine"
-                        : guard.status
+                        : guard.status,
+                    suspicionRow: spottedPlayer ? row : guard.suspicionRow,
+                    suspicionCol: spottedPlayer ? col : guard.suspicionCol,
+                    
                 };
             }
-            if (guard.pattern === "fourway") {
-                let newDirection;
+            else if (guard.pattern === "fourway") {
+                let newDirection = guard.direction;
+
                 switch (guard.direction) {
                     case "north":
                         newDirection = "east";
@@ -216,25 +467,35 @@ const Game = () => {
                         break;
                     case "south":
                         newDirection = "west";
+                        break;
                     case "west":
                         newDirection = "north";
                         break;
                 }
+
+                const updatedGuard = {
+                    ...guard,
+                    direction: newDirection
+                };
+
+                const spottedPlayer = canGuardSeePlayer(updatedGuard, row, col);
+
                 return {
                     ...guard,
-                    direction: guard.direction === "north" ? "east" : 
-                    guard.direction === "east" ? "south" : 
-                    guard.direction === "south" ? "west" : "north",
+                    direction: newDirection,
+                    state: spottedPlayer ? "suspicion" : guard.state,
                     statusLength: guard.status === "Blind"
                         ? guard.statusLength - 1
                         : guard.statusLength,
                     status: guard.status === "Blind" && guard.statusLength - 1 <= 0
                         ? "fine"
-                        : guard.status
-
-                }
+                        : guard.status,
+                    suspicionRow: spottedPlayer ? row : guard.suspicionRow,
+                    suspicionCol: spottedPlayer ? col : guard.suspicionCol,
+                    
+                };
             }
-            if (guard.pattern === "vertical") {
+            else if (guard.pattern === "vertical") {
                 return {
                     ...guard,
                     direction: guard.direction ==="north" ? "south" : "north",
@@ -252,13 +513,164 @@ const Game = () => {
         );
     };
 
-    const isGuardVision = (row: number, col: number) => {
-        return guardData.some(guard => {
+     const canGuardSeePlayer = (
+        guard: {
+            row: number;
+            col: number;
+            state: string;
+            direction: string;
+            status: string;
+        },
+        playerRow: number,
+        playerCol: number
+    ) => {
+        let checkRow = guard.row;
+        let checkCol = guard.col;
+
+        if (guard.status === "Blind") {
+            return false;
+        }
+            while (true) {
+                let nextRow = checkRow;
+                let nextCol = checkCol;
+
+                if (guard.direction === "north") {
+                    nextRow--;
+                } else if (guard.direction === "south") {
+                    nextRow++;
+                } else if (guard.direction === "east") {
+                    nextCol++;
+                } else if (guard.direction === "west") {
+                    nextCol--;
+                }
+
+                if (
+                    nextRow < 0 ||
+                    nextRow >= grid.length ||
+                    nextCol < 0 ||
+                    nextCol >= grid[0].length
+                ) {
+                    return false;
+                }
+
+                if (!canMove(checkRow, checkCol, nextRow, nextCol)) {
+                    return false;
+                }
+
+                checkRow = nextRow;
+                checkCol = nextCol;
+
+                if (
+                    checkRow === playerRow &&
+                    checkCol === playerCol
+                ) {
+                    return true;
+                }
+        }
+
+    };
+
+   const canSuspicionGuardSeePlayer = (
+        guard: {
+            row: number;
+            col: number;
+            status: string;
+        },
+        playerRow: number,
+        playerCol: number
+    ) => {
+        if (guard.status === "Blind") {
+            return false;
+        }
+
+        const adjacentDirections = [
+            { row: -1, col: 0 }, 
+            { row: 1, col: 0 },  
+            { row: 0, col: -1 },
+            { row: 0, col: 1 },   
+            { row: -1, col: -1 },
+            { row: -1, col: 1 }, 
+            { row: 1, col: -1 }, 
+            { row: 1, col: 1 }   
+        ];
+
+        for (const direction of adjacentDirections) {
+            const nextRow = guard.row + direction.row;
+            const nextCol = guard.col + direction.col;
+
+            if (
+                nextRow < 0 ||
+                nextRow >= grid.length ||
+                nextCol < 0 ||
+                nextCol >= grid[0].length
+            ) {
+                continue;
+            }
+
+            if (!canMove(guard.row, guard.col, nextRow, nextCol)) {
+                continue;
+            }
+
+            if (
+                nextRow === playerRow &&
+                nextCol === playerCol
+            ) {
+                return true;
+            }
+        }
+
+        
+        const cardinalDirections = [
+            { row: -1, col: 0 }, 
+            { row: 1, col: 0 },  
+            { row: 0, col: -1 }, 
+            { row: 0, col: 1 }   
+        ];
+
+        for (const direction of cardinalDirections) {
+            const middleRow = guard.row + direction.row;
+            const middleCol = guard.col + direction.col;
+
+            const nextRow = guard.row + direction.row * 2;
+            const nextCol = guard.col + direction.col * 2;
+
+            if (
+                nextRow < 0 ||
+                nextRow >= grid.length ||
+                nextCol < 0 ||
+                nextCol >= grid[0].length
+            ) {
+                continue;
+            }
+
+            
+            if (!canMove(guard.row, guard.col, middleRow, middleCol)) {
+                continue;
+            }
+
+            
+            if (!canMove(middleRow, middleCol, nextRow, nextCol)) {
+                continue;
+            }
+
+            if (
+                nextRow === playerRow &&
+                nextCol === playerCol
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    };
+
+    /*const getGuardVision = (row: number, col: number) => {
+        return guardData.find(guard => {
             let checkRow = guard.row;
             let checkCol = guard.col;
 
-            if(guard.status === "Blind") {
-                return false
+            if (guard.status === "Blind") {
+                return false;
             }
 
             while (true) {
@@ -296,6 +708,71 @@ const Game = () => {
                 }
             }
         });
+    }; */
+
+    const isGuardVision = (row: number, col: number) => {
+        for (const guard of guardData) {
+            let checkRow = guard.row;
+            let checkCol = guard.col;
+
+            if (guard.status === "Blind") {
+                continue;
+            }
+
+            if (guard.state === "alert") {
+                if (
+                    Math.abs(checkRow - row) +
+                    Math.abs(checkCol - col) === 1
+                ) {
+                    if (canMove(checkRow, checkCol, row, col)) {
+                        return "red";
+                    }
+                }
+            }
+
+            else if (guard.state === "suspicion") {
+                if (canSuspicionGuardSeePlayer(guard, row, col)) {
+                    return "yellow";
+                }
+            }
+
+            else {
+                while (true) {
+                    let nextRow = checkRow;
+                    let nextCol = checkCol;
+
+                    if (guard.direction === "north") {
+                        nextRow--;
+                    } else if (guard.direction === "south") {
+                        nextRow++;
+                    } else if (guard.direction === "east") {
+                        nextCol++;
+                    } else if (guard.direction === "west") {
+                        nextCol--;
+                    }
+
+                    if (
+                        nextRow < 0 ||
+                        nextRow >= grid.length ||
+                        nextCol < 0 ||
+                        nextCol >= grid[0].length
+                    ) {
+                        break;
+                    }
+
+                    if (!canMove(checkRow, checkCol, nextRow, nextCol)) {
+                        break;
+                    }
+
+                    checkRow = nextRow;
+                    checkCol = nextCol;
+
+                    if (checkRow === row && checkCol === col) {
+                        return "yellow";
+                    }
+                }
+            }
+        }
     };
 
     const notObstructed = (row: number, col: number) => {
@@ -314,10 +791,13 @@ const Game = () => {
             return false;
         }
 
+        if(getDoorData(toRow, toCol)?.isOpen === false) {
+            return false
+        }
+
         const currentWall = getWallData(fromRow, fromCol);
         const destinationWall = getWallData(toRow, toCol);
 
-        // Moving north
         if (toRow < fromRow) {
             if (
                 currentWall?.walls.includes("north") ||
@@ -327,7 +807,6 @@ const Game = () => {
             }
         }
 
-        // Moving south
         if (toRow > fromRow) {
             if (
                 currentWall?.walls.includes("south") ||
@@ -337,7 +816,6 @@ const Game = () => {
             }
         }
 
-        // Moving east
         if (toCol > fromCol) {
             if (
                 currentWall?.walls.includes("east") ||
@@ -347,7 +825,6 @@ const Game = () => {
             }
         }
 
-        // Moving west
         if (toCol < fromCol) {
             if (
                 currentWall?.walls.includes("west") ||
@@ -415,12 +892,13 @@ const Game = () => {
                 );
 
                 setGameActions([`Door opened at (${row}, ${col})`]);
+                advanceGuards(row, col)
                 break;
-            case "cloak":
+            case "blind":
 
-                const cloak = toolBeltItems.find(item => item.name === "cloak")
+                const blind = toolBeltItems.find(item => item.name === "blind")
 
-                if(!cloak || cloak.quantity <= 0) return
+                if(!blind || blind.quantity <= 0) return
 
                 setGuardData(prev => 
                     prev.map(guard => 
@@ -430,9 +908,10 @@ const Game = () => {
                     )
                 )
 
+
                 setToolBeltItems(prev =>
                     prev.map(item =>
-                        item.name === "cloak"
+                        item.name === "blind"
                             ? { ...item, quantity: item.quantity - 1 }
                             : item
                     )
@@ -478,7 +957,7 @@ const Game = () => {
                     })
                     
                 );
-                advanceGuards();
+                advanceGuards(row, col);
                 break;
         }
         
@@ -523,12 +1002,12 @@ const Game = () => {
                 col: wall.col,
                 type: "wall"
             }));
-        if(getItemExist("cloak")) {
+        if(getItemExist("blind")) {
             const guardInteractions = guardData
                 .map(guard => ({
                     row: guard.row,
                     col: guard.col, 
-                    type: "cloak"
+                    type: "blind"
 
             }))
             tempInteractions.push(...guardInteractions)
@@ -563,13 +1042,9 @@ const Game = () => {
             setAvailableInteractions([]);
             setCurrentlyInteracting(false);
 
-            advanceGuards();
+            advanceGuards(row, col);
 
-            const item = getItemData(
-                getPlayerAt[0].row,
-                getPlayerAt[0].col
-            );
-
+            const item = getItemData(row, col)
             if (item && !item.isCollected) {
                 setToolBeltItems(prev => {
                     const existingItem = prev.find(
@@ -592,8 +1067,8 @@ const Game = () => {
 
                 setItemData(prev =>
                     prev.map(currentItem =>
-                        currentItem.row === getPlayerAt[0].row &&
-                        currentItem.col === getPlayerAt[0].col
+                        currentItem.row === row &&
+                        currentItem.col === col
                             ? { ...currentItem, isCollected: true }
                             : currentItem
                     )
@@ -719,29 +1194,48 @@ const Game = () => {
             {grid.map((row) => (
                 <View key={row[0].row} style={styles.row}>
                     {row.map((tile) => (
-                        <Pressable key={tile.id} 
-                        style={[styles.tile, 
-                            getNorthWallStyle(tile.row, tile.col),
-                            getSouthWallStyle(tile.row, tile.col),
-                            getEastWallStyle(tile.row, tile.col),
-                            getWestWallStyle(tile.row, tile.col),
-                            isGuardVision(tile.row, tile.col) && styles.guardVision, 
-                            isAvailableMove(tile.row, tile.col) && styles.availableTile, 
-                            getVisuals(tile.row, tile.col) === "Opendoor" && styles.doorTileOpen, 
-                            getVisuals(tile.row, tile.col) === "Closeddoor" && styles.doorTileClosed, 
-                            getVisuals(tile.row, tile.col) === "WinTile" && styles.winTile,
-                            isAvailableInteraction(tile.row, tile.col) && styles.interactionTile]}
+                        <Pressable
+                            key={tile.id}
+                            style={[
+                                styles.tile,
+
+                                getNorthWallStyle(tile.row, tile.col),
+                                getSouthWallStyle(tile.row, tile.col),
+                                getEastWallStyle(tile.row, tile.col),
+                                getWestWallStyle(tile.row, tile.col),
+
+                                isGuardVision(tile.row, tile.col) === "yellow" && styles.guardVision,
+                                isGuardVision(tile.row, tile.col) === "red" && styles.alertVision,
+
+                                isAvailableMove(tile.row, tile.col) && styles.availableTile,
+                                getVisuals(tile.row, tile.col) === "Opendoor" && styles.doorTileOpen,
+                                getVisuals(tile.row, tile.col) === "Closeddoor" && styles.doorTileClosed,
+                                getVisuals(tile.row, tile.col) === "WinTile" && styles.winTile,
+                                isAvailableInteraction(tile.row, tile.col) && styles.interactionTile,
+                            ]}
                             onPress={() => {
                                 if (currentlyMoving) {
                                     handleTilePress(tile.row, tile.col);
                                 } else if (currentlyInteracting) {
                                     handleInteractionPress(tile.row, tile.col);
-                                }
-                                else {
+                                } else {
                                     setAvailableInteractions([]);
                                 }
-                            }}>
-                            <Text>{getOccupied(tile.row, tile.col)}</Text>
+                            }}
+                        >
+                            {getOccupied(tile.row, tile.col)?.toLocaleLowerCase() === "guard" ? (
+                                <View style={[styles.guard, 
+                                getGuardVisuals(tile.row, tile.col, false) === 'neutral' && styles.guardNeutral,
+                                getGuardVisuals(tile.row, tile.col, false) === 'suspicion' && styles.guardSuspicious,
+                                getGuardVisuals(tile.row, tile.col, false) === 'alert' && styles.guardAlert
+                                ]}>
+                                    <Text style={styles.guardText}>{getGuardVisuals(tile.row, tile.col, true)}</Text>
+                                </View>
+                            ) : (
+                                <View>
+                                    <Text>{getOccupied(tile.row, tile.col)}</Text>
+                                </View>
+                            )}
                         </Pressable>
                     ))}
                 </View>
@@ -824,6 +1318,11 @@ const styles = StyleSheet.create({
     },
     guardVision: {
         backgroundColor: "yellow",
+        opacity: 0.4
+    },
+    alertVision: {
+        backgroundColor: "red",
+        opacity: 0.4
     },
     interactionTile: {
         backgroundColor: "purple",
@@ -878,7 +1377,33 @@ const styles = StyleSheet.create({
         aspectRatio: 1,
         justifyContent: 'center',
         alignItems: 'center'
-    }
+    },
+    guard: {
+        width: "90%",
+        height: "90%",
+        borderRadius: 5,
+        justifyContent: "center",
+        alignItems: "center",
+    },
+
+    guardNeutral: {
+        backgroundColor: 'grey'
+    },
+
+    guardSuspicious: {
+        backgroundColor: 'orange'
+    },
+
+    guardAlert: {
+        backgroundColor: 'red'
+    },
+
+    guardText: {
+        fontSize: 30,
+        fontWeight: "bold",
+        color: 'white',
+        opacity: 0.7
+    },
 });
 
 export default Game;
