@@ -1,13 +1,18 @@
-import { useEffect, useState } from "react";
-import { View, Text, StyleSheet, Pressable } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { View, Text, StyleSheet, Pressable, Animated, Button } from "react-native";
 import { createGrid } from "./grid";
 import { useRouter } from 'expo-router';
 
 const Game = () => {
     const router = useRouter();
     const [grid, setGrid] = useState(() => createGrid());
+    const [gridSize, setGridSize] = useState(0);
+    const tileSize = gridSize / 7;
     const [playerStartingPosition, setPlayerStartingPosition] = useState({ row: 0, col: 4 });
     const [getPlayerAt, setGetPlayerAt] = useState([{ row: playerStartingPosition.row, col: playerStartingPosition.col }]);
+    const playerX = useRef(new Animated.Value(0)).current;
+    const playerY = useRef(new Animated.Value(0)).current;
+
     const [playerCaptured, setPlayerCaptured] = useState(false);
     const [toolBeltLength, setToolBeltLength] = useState(3)
     const [toolBeltItems, setToolBeltItems] = useState<{ name: string; quantity: number }[]>([
@@ -21,7 +26,23 @@ const Game = () => {
         blue: false
     });
     const [winTile, setWinTile] = useState({ row: 0, col:   0 })
-    const [doorData, setDoorData] = useState([{ row: 2, col: 2, isOpen: false }])
+    const [doorData, setDoorData] = useState([
+        {
+            id: 1,
+            row: 3,
+            col: 2,
+            isOpen: true,
+            powered: true
+        },
+        {
+            id: 2,
+            row: 0,
+            col: 1,
+            isOpen: false,
+            powered: false
+        },
+
+    ]);
     type Wall = {
         walls: string[];
         brittle: {
@@ -44,17 +65,15 @@ const Game = () => {
         // Level Divider
         { walls: ["east", "south"], brittle: [], powered: [{direction: "east", source: "grid"}], row: 0, col: 2}, 
         { walls: ["east"], brittle: [], powered: [], row: 1, col: 2 }, 
-        { walls: ["east"], brittle: [], powered: [], row: 3, col: 2}, 
-        { walls: ["east"], brittle: [], powered: [], row: 4, col: 2}, 
+        { walls: ["east"], brittle: [], powered: [], row: 2, col: 2}, 
+        { walls: ["east"], brittle: [], powered: [], row: 4, col: 2},  
         { walls: ["east"], brittle: [], powered: [], row: 5, col: 2}, 
         { walls: ["east"], brittle: [{direction: "east", health: 3}], powered: [], row: 6, col: 2},
         // Starter Room
         { walls: ["south"], brittle: [], row: 1, powered: [{direction: "south", source: "grid"}], col: 4},
-        // { walls: ["south", "east", "west"], brittle: [],row: 0, col: 4},
         { walls: ["south", "east"], brittle: [], powered: [], row: 1, col: 5},
         //Key Room
         { walls: ["north"], brittle: [], powered: [], row: 6, col: 5},
-        { walls: ["north"], brittle: [], powered: [], row: 6, col: 6},
         { walls: ["north"], brittle: [], powered: [], row: 6, col: 3},
         { walls: ["north", "east"], brittle: [], powered: [], rotating: { source: "grid", direction: "clockwise", state: 0}, row: 6, col: 4},
         // Win Room
@@ -68,14 +87,28 @@ const Game = () => {
         { id: 1, type: "grunt", state: "patrol", row: 2, col: 0, 
             pattern: "fourway", direction: "north", status: "fine", statusLength: 0, stateLength: 0, suspicionRow: null as number | null,
             suspicionCol: null as number | null,},
-        { id: 2, type: "officer", state: "patrol", row: 4, col: 5, pattern: "wander", direction: "north", status: "fine", statusLength: 0,
+       /* { id: 2, type: "officer", state: "patrol", row: 4, col: 5, pattern: "wander", direction: "north", status: "fine", statusLength: 0,
         stateLength: 0, suspicionRow: null as number | null, suspicionCol: null as number | null,
-        }
+        } */
     ])
+    const [cameraData, setCameraData] = useState([
+        {
+            id: 1,
+            row: 5,
+            col: 3,
+            direction: "north",
+            state: "active",
+            type: "door",
+            controlsDoor: 1
+        }
+    ]);
+    const [cameraDistance, setCameraDistance] = useState([
+        {type: "door" , distance: 3}
+    ]);
     const [itemData, setItemData] = useState([
-    { type: 'key', row: 6, col: 6, isCollected: false }, 
+    //{ type: 'key', row: 1, col: 4, isCollected: false }, 
     { type: 'blind', row: 1, col: 6, isCollected: false},
-    //{ type: 'key', row: 0, col: 3, isCollected: false}
+    { type: 'key', row: 6, col: 6, isCollected: false}
     ])
     const [powerSquareData, setPowerSquareData] = useState([
     {type: 'grid', row: 5, col: 6},
@@ -109,6 +142,21 @@ const Game = () => {
         }
     }, [playerCaptured]);
 
+    useEffect(() => {
+        if (gridSize > 0) {
+            const playerSize = 40;
+
+            playerX.setValue(
+                playerStartingPosition.col * tileSize +
+                (tileSize - playerSize) / 2
+            );
+
+            playerY.setValue(
+                playerStartingPosition.row * tileSize +
+                (tileSize - playerSize) / 2
+            );
+        }
+    }, [gridSize]);
 
     const handleWin = () => {
         console.log("You win!");
@@ -120,31 +168,57 @@ const Game = () => {
         router.replace('/lose');
     }
     const getOccupied = (row: number, col: number) => {
-        const item = getItemData(row, col)
-        if (getPlayerAt.some((player) => player.row === row && player.col === col)) {
-            return "YOU"
+        const item = getItemData(row, col);
+
+        const camera = getCameraData(row, col);
+
+        if (camera) {
+            if (camera.state === "active") {
+                return "CAM";
+            }
+
+            else if (camera.state === "alert") {
+                return "!CAM!";
+            }
+            else if (camera.state === "inactive") {
+                return "IAC"
+            }
         }
 
-        if(getGuardData(row, col)) {
-            return "GUARD"
+        if (getGuardData(row, col)) {
+            return "guard";
+        }
+
+        if(getDoorData(row, col)) {
+            const door = getDoorData(row, col);
+            let doorString = "D"
+            if (door?.isOpen) {
+                doorString += "(o)"
+            }
+            if (door?.powered) {
+                doorString += "(p)"
+            }
+            return doorString
         }
 
         if (item && !item.isCollected) {
-            if(!powerOut) {
+            if (!powerOut) {
                 return item.type.toUpperCase();
-            }    
+            }
         }
 
-        if(getWallData(row, col) && getWallData(row, col)?.rotating) {
-            const wall = getWallData(row, col)
-            if(wall?.rotating?.direction === "clockwise") {
-                return "↻"
+        const wall = getWallData(row, col);
+
+        if (wall?.rotating) {
+            if (wall.rotating.direction === "clockwise") {
+                return "↻";
             }
-            if(wall?.rotating?.direction === "counterclockwise") {
-                return "↺"
+
+            if (wall.rotating.direction === "counterclockwise") {
+                return "↺";
             }
         }
-    }
+    };
 
     const getWinTile = (row: number, col: number) => {
         return winTile.row === row && winTile.col === col;
@@ -163,6 +237,10 @@ const Game = () => {
 
     const getGuardData = (row: number, col: number) => {
         return guardData.find((guard) => guard.row === row && guard.col === col);
+    }
+
+    const getCameraData = (row: number, col: number) => {
+        return cameraData.find((camera) => camera.row === row && camera.col === col);
     }
 
     const getGuardVisuals = (row: number, col: number, text: boolean) => {
@@ -265,6 +343,7 @@ const Game = () => {
     const advanceTurn = (row: number, col: number) => {
 
         advanceGuards(row, col);
+        updateCameras(row, col)
         rotatePoweredWalls();
     };
 
@@ -694,6 +773,120 @@ const Game = () => {
                 return guard;
             })
         );
+    };  
+
+    const updateCameras = (row: number, col: number) => {
+        setCameraData(prev =>
+            prev.map(camera => {
+                const spottedPlayer = canCameraSeePlayer(
+                    camera,
+                    row,
+                    col
+                );
+
+                if (spottedPlayer) {
+                    if (camera.state !== "alert") {
+                        if (camera.controlsDoor !== undefined) {
+                            setDoorData(prevDoors =>
+                                prevDoors.map(door =>
+                                    door.id === camera.controlsDoor
+                                        ? { ...door, isOpen: false }
+                                        : door
+                                )
+                            );
+                        }
+                    }
+
+                    return {
+                        ...camera,
+                        state: "alert"
+                    };
+                }
+
+                if (camera.state === "alert") {
+                    if (camera.controlsDoor !== undefined) {
+                        setDoorData(prevDoors =>
+                            prevDoors.map(door =>
+                                door.id === camera.controlsDoor
+                                    ? { ...door, isOpen: true }
+                                    : door
+                            )
+                        );
+                    }
+
+                    return {
+                        ...camera,
+                        state: "active"
+                    };
+                }
+
+                return camera;
+            })
+        );
+    };
+
+    const canCameraSeePlayer = (
+        camera: {
+            row: number;
+            col: number;
+            direction: string;
+            state: string;
+            type: string;
+        },
+        playerRow: number,
+        playerCol: number
+    ) => {
+        if (camera.state === "inactive") {
+            return false;
+        }
+
+        const maxDistance =
+            cameraDistance.find(d => d.type === camera.type)?.distance || 0;
+
+        let currentDistance = 0;
+        let checkRow = camera.row;
+        let checkCol = camera.col;
+
+        while (currentDistance < maxDistance) {
+            let nextRow = checkRow;
+            let nextCol = checkCol;
+
+            if (camera.direction === "north") {
+                nextRow--;
+            } else if (camera.direction === "south") {
+                nextRow++;
+            } else if (camera.direction === "east") {
+                nextCol++;
+            } else if (camera.direction === "west") {
+                nextCol--;
+            }
+
+            if (
+                nextRow < 0 ||
+                nextRow >= grid.length ||
+                nextCol < 0 ||
+                nextCol >= grid[0].length
+            ) {
+                return false;
+            }
+
+            if (!canMove(checkRow, checkCol, nextRow, nextCol)) {
+                return false;
+            }
+
+            checkRow = nextRow;
+            checkCol = nextCol;
+            currentDistance++;
+
+            if (
+                checkRow === playerRow &&
+                checkCol === playerCol
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     };
 
      const canGuardSeePlayer = (
@@ -958,6 +1151,62 @@ const Game = () => {
         }
     };
 
+    const isCameraVision = (row: number, col: number) => {
+        for (const camera of cameraData) {
+
+            if (camera.state === "inactive") {
+                continue;
+            }
+
+            const maxDistance =
+                cameraDistance.find(d => d.type === camera.type)?.distance || 0;
+
+            let checkRow = camera.row;
+            let checkCol = camera.col;
+
+            let currentDistance = 0;
+
+            while (currentDistance < maxDistance) {
+                let nextRow = checkRow;
+                let nextCol = checkCol;
+
+                if (camera.direction === "north") {
+                    nextRow--;
+                } else if (camera.direction === "south") {
+                    nextRow++;
+                } else if (camera.direction === "east") {
+                    nextCol++;
+                } else if (camera.direction === "west") {
+                    nextCol--;
+                }
+
+                if (
+                    nextRow < 0 ||
+                    nextRow >= grid.length ||
+                    nextCol < 0 ||
+                    nextCol >= grid[0].length
+                ) {
+                    break;
+                }
+
+                if (!canMove(checkRow, checkCol, nextRow, nextCol)) {
+                    break;
+                }
+
+                checkRow = nextRow;
+                checkCol = nextCol;
+                currentDistance++;
+
+                if (checkRow === row && checkCol === col) {
+                    return camera.state === "alert"
+                        ? "red"
+                        : "yellow";
+                }
+            }
+        }
+    };
+
+
     const notObstructed = (row: number, col: number) => {
         if(getDoorData(row, col) && !getDoorData(row, col)?.isOpen) {
             return false;
@@ -1063,7 +1312,7 @@ const Game = () => {
 
                 setDoorData(prev =>
                     prev.map(door =>
-                        door.row === row && door.col === col
+                        door.row === row && door.col === col 
                             ? { ...door, isOpen: true }
                             : door
                     )
@@ -1162,6 +1411,7 @@ const Game = () => {
             .filter(
                 door =>
                     !door.isOpen &&
+                    !door.powered &&
                     Math.abs(door.row - player.row) +
                     Math.abs(door.col - player.col) === 1
             )
@@ -1219,6 +1469,104 @@ const Game = () => {
         );
     };
 
+    const movePlayer = (row: number, col: number) => {
+        const playerSize = 40;
+
+        const targetX =
+            col * tileSize +
+            (tileSize - playerSize) / 2;
+
+        const targetY =
+            row * tileSize +
+            (tileSize - playerSize) / 2;
+
+        Animated.parallel([
+            Animated.timing(playerX, {
+                toValue: targetX,
+                duration: 300,
+                useNativeDriver: true,
+            }),
+
+            Animated.timing(playerY, {
+                toValue: targetY,
+                duration: 300,
+                useNativeDriver: true,
+            }),
+        ]).start(() => {
+
+            setGetPlayerAt([{ row, col }]);
+
+            setAvailableMoves([]);
+            setCurrentlyMoving(false);
+
+            setAvailableInteractions([]);
+            setCurrentlyInteracting(false);
+
+            if (!powerOut) {
+                const item = getItemData(row, col);
+
+                if (item && !item.isCollected) {
+                    setToolBeltItems(prev => {
+                        const existingItem = prev.find(
+                            toolItem => toolItem.name === item.type
+                        );
+
+                        if (existingItem) {
+                            return prev.map(toolItem =>
+                                toolItem.name === item.type
+                                    ? {
+                                        ...toolItem,
+                                        quantity: toolItem.quantity + 1
+                                    }
+                                    : toolItem
+                            );
+                        }
+
+                        return [
+                            ...prev,
+                            {
+                                name: item.type,
+                                quantity: 1
+                            }
+                        ];
+                    });
+
+                    setItemData(prev =>
+                        prev.map(currentItem =>
+                            currentItem.row === row &&
+                            currentItem.col === col
+                                ? {
+                                    ...currentItem,
+                                    isCollected: true
+                                }
+                                : currentItem
+                        )
+                    );
+                }
+            }
+
+            const powerTile = getPowerTileData(row, col);
+
+            if (powerTile && powerTile.type === "grid") {
+                setPowerOut(prev => !prev);
+            }
+
+            const camera = getCameraData(row, col);
+
+            if (camera && camera.state === "active") {
+                setCameraData(prev =>
+                    prev.map(currentCamera =>
+                        currentCamera.id === camera.id
+                            ? { ...currentCamera, state: "inactive" }
+                            : currentCamera
+                    )
+                );
+            }
+
+            advanceTurn(row, col);
+        });
+    };
+
     const handleTilePress = (row: number, col: number) => {
         
         if(row === getPlayerAt[0].row && col === getPlayerAt[0].col) {
@@ -1229,53 +1577,7 @@ const Game = () => {
             return
         }
         if (currentlyMoving && isAvailableMove(row, col)) {
-            setGetPlayerAt([{ row, col }]);
-            setAvailableMoves([]);
-            setCurrentlyMoving(false);
-
-            setAvailableInteractions([]);
-            setCurrentlyInteracting(false);
-
-            advanceTurn(row, col);
-
-            if(!powerOut) {
-                const item = getItemData(row, col)
-                if (item && !item.isCollected) {
-                    setToolBeltItems(prev => {
-                        const existingItem = prev.find(
-                            toolItem => toolItem.name === item.type
-                        );
-
-                        if (existingItem) {
-                            return prev.map(toolItem =>
-                                toolItem.name === item.type
-                                    ? { ...toolItem, quantity: toolItem.quantity + 1 }
-                                    : toolItem
-                            );
-                        } else {
-                            return [
-                                ...prev,
-                                { name: item.type, quantity: 1 }
-                            ];
-                        }
-                    });
-
-                    setItemData(prev =>
-                        prev.map(currentItem =>
-                            currentItem.row === row &&
-                            currentItem.col === col
-                                ? { ...currentItem, isCollected: true }
-                                : currentItem
-                        )
-                    );
-                }
-            }
-
-            const powerTile = getPowerTileData(row, col)
-            if(powerTile) {
-                if(powerTile.type === "grid")
-                    setPowerOut(prev => !prev);
-            }
+            movePlayer(row, col);
         }
     };
 
@@ -1422,7 +1724,12 @@ const Game = () => {
                         </>
                     )}
             </View>
-           <View style={styles.grid}>
+        <View
+            style={styles.grid}
+            onLayout={(event) => {
+                setGridSize(event.nativeEvent.layout.width);
+            }}
+        >
                 {grid.map((row) => (
                     <View key={row[0].row} style={styles.row}>
                         {row.map((tile) => {
@@ -1441,6 +1748,9 @@ const Game = () => {
                                         getSouthWallStyle(tile.row, tile.col),
                                         getEastWallStyle(tile.row, tile.col),
                                         getWestWallStyle(tile.row, tile.col),
+
+                                        isCameraVision(tile.row, tile.col) === "yellow" && styles.cameraVision,
+                                        isCameraVision(tile.row, tile.col) === "red" && styles.alertCameraVision,
 
                                         isGuardVision(tile.row, tile.col) === "yellow" && styles.guardVision,
                                         isGuardVision(tile.row, tile.col) === "red" && styles.alertVision,
@@ -1480,6 +1790,12 @@ const Game = () => {
                                                 {getGuardVisuals(tile.row, tile.col, true)}
                                             </Text>
                                         </View>
+                                    ) : occupied?.toLowerCase() === "cam" || occupied?.toLowerCase() === "!cam!" || occupied?.toLowerCase() === "iac" ? (
+                                        <View>
+                                            <Text style={[occupied?.toLowerCase() === "iac" ? styles.camTextOff : styles.camText]}>
+                                                {occupied}
+                                            </Text>
+                                        </View>
                                     ) : (
                                         <View>
                                             <Text
@@ -1496,7 +1812,8 @@ const Game = () => {
                                                     fontSize: 
                                                         occupied === "↻" || occupied === "↺"
                                                         ? 25 
-                                                        : 13
+                                                        : 13,
+                                                    backgroundColor: (occupied?.length ?? 0) > 1 && occupied?.charAt(0) !== "D" ? "gold" : "transparent",
                                                 }}
                                             >
                                                 {occupied}
@@ -1508,6 +1825,20 @@ const Game = () => {
                         })}
                     </View>
                 ))}
+                <Animated.View
+                    pointerEvents="none"
+                    style={[
+                        styles.player,
+                        {
+                            transform: [
+                                { translateX: playerX },
+                                { translateY: playerY },
+                            ],
+                        },
+                    ]}
+                >
+                    <Text style={{ fontWeight: "bold", backgroundColor: "white", color: "black",}}>YOU</Text>
+                </Animated.View>
             </View>
             <Pressable style={styles.toolBelt} onPress={() => {showAvailableInteractions()}}>
                 {Array.from({ length: toolBeltLength }).map((_, index) => {
@@ -1531,6 +1862,15 @@ const Game = () => {
 };
 
 const styles = StyleSheet.create({
+    player: {
+        position: "absolute",
+        left: 0,
+        top: 0,
+        width: 40,
+        height: 40,
+        justifyContent: "center",
+        alignItems: "center",
+    },
     container: {
         flex: 1,
         width: "100%",
@@ -1621,13 +1961,24 @@ const styles = StyleSheet.create({
 
     guardVision: {
         backgroundColor: "#fcc80f",
-        opacity: 0.7,
+        opacity: 0.6,
     },
 
     alertVision: {
         backgroundColor: "#c94b4b",
         opacity: 0.45,
     },
+
+    cameraVision: {
+        backgroundColor: "#026a1d",
+        opacity: 0.9,
+    },
+
+    alertCameraVision: {
+        backgroundColor: "#c94b4b",
+        opacity: 0.45,
+    },
+
 
     interactionTile: {
         backgroundColor: "#7653a6",
@@ -1733,6 +2084,25 @@ const styles = StyleSheet.create({
         fontWeight: "bold",
         color: "#fff",
         opacity: 0.8,
+    },
+    // CAMERAS
+
+    camText: {
+        fontWeight: "bold",
+        color: "#fff",
+        opacity: 0.8,
+        backgroundColor: "#01ad77",
+        padding: 3,
+        borderRadius: 4,
+    },
+
+    camTextOff: {
+        fontWeight: "bold",
+        color: "#fff",
+        opacity: 0.8,
+        backgroundColor: "#d66464",
+        padding: 3,
+        borderRadius: 4,
     },
 
     // TOOLBELT 
