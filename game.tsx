@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Animated, Button } from "react-native";
 import { createGrid } from "./grid";
 import { useRouter } from 'expo-router';
+import { Image } from "react-native";
 
 const Game = () => {
     const router = useRouter();
@@ -12,6 +13,8 @@ const Game = () => {
     const [getPlayerAt, setGetPlayerAt] = useState([{ row: playerStartingPosition.row, col: playerStartingPosition.col }]);
     const playerX = useRef(new Animated.Value(0)).current;
     const playerY = useRef(new Animated.Value(0)).current;
+    const [steps, setSteps] = useState(0)
+    const [detection, setDetection] = useState(0);
 
     const [playerCaptured, setPlayerCaptured] = useState(false);
     const [toolBeltLength, setToolBeltLength] = useState(3)
@@ -87,9 +90,12 @@ const Game = () => {
         { id: 1, type: "grunt", state: "patrol", row: 2, col: 0, 
             pattern: "fourway", direction: "north", status: "fine", statusLength: 0, stateLength: 0, suspicionRow: null as number | null,
             suspicionCol: null as number | null,},
-       /* { id: 2, type: "officer", state: "patrol", row: 4, col: 5, pattern: "wander", direction: "north", status: "fine", statusLength: 0,
+        { id: 2, type: "officer", state: "patrol", row: 4, col: 5, pattern: "wander", direction: "north", status: "fine", statusLength: 0,
         stateLength: 0, suspicionRow: null as number | null, suspicionCol: null as number | null,
-        } */
+        } 
+      /* { id: 2, type: "grunt", state: "patrol", row: 4, col: 6, 
+            pattern: "fourway", direction: "north", status: "fine", statusLength: 0, stateLength: 0, suspicionRow: null as number | null,
+            suspicionCol: null as number | null,} */
     ])
     const [cameraData, setCameraData] = useState([
         {
@@ -243,6 +249,25 @@ const Game = () => {
         return cameraData.find((camera) => camera.row === row && camera.col === col);
     }
 
+    const getItemImage = (row: number, col: number) => {
+        const item = getItemData(row, col);
+
+        if (!item || item.isCollected || powerOut) {
+            return null;
+        }
+
+        switch (item.type) {
+            case "key":
+                return require("../assets/keyItem.png");
+
+            case "blind":
+                return require("../assets/blindItem.png");
+
+            default:
+                return null;
+        }
+    };
+
     const getGuardVisuals = (row: number, col: number, text: boolean) => {
         const guard = guardData.find(
             (guard) => guard.row === row && guard.col === col
@@ -389,6 +414,10 @@ const Game = () => {
         setGuardData(prev =>
             prev.map(guard => {
                 if(guard.state === "alert") {
+                    console.log(
+                        `ALERT: Guard ${guard.id} | stateLength=${guard.stateLength} | position=${guard.row},${guard.col}`
+                    );
+                    //console.log(`Guard ${guard.id} is in alert state. State length: ${guard.stateLength}`)
                     let newRow = guard.row;
                     let newCol = guard.col;
 
@@ -464,12 +493,19 @@ const Game = () => {
                     ) {
                         setPlayerCaptured(true)
                     }
+                    if(guard.stateLength <= 0) {
+                        setDetection(prevDetection => Math.max(prevDetection - 10, 0));
+                    }
+                    //console.log(`Second state length check: ${guard.stateLength}`)
+                    const newStateLength = guard.stateLength - 1;
 
                     return {
                         ...guard,
                         row: newRow,
                         col: newCol,
-                    }
+                        stateLength: Math.max(newStateLength, 0),
+                        state: newStateLength > 0 ? "alert" : "patrol",
+                    };
                 }
                 else if (guard.state === "suspicion") {
                     if (guard.suspicionRow === null || guard.suspicionCol === null) {
@@ -482,28 +518,30 @@ const Game = () => {
                         guard.row === guard.suspicionRow &&
                         guard.col === guard.suspicionCol
                     ) {
+                        const spottedPlayer = canSuspicionGuardSeePlayer(
+                            guard,
+                            row,
+                            col
+                        );
+
+                        if (spottedPlayer) {
+                            return {
+                                ...guard,
+                                state: "alert",
+                                stateLength: 7,
+                                suspicionRow: null,
+                                suspicionCol: null
+                            };
+                        }
+
                         if (guard.stateLength > 0) {
-                            const spottedPlayer = canSuspicionGuardSeePlayer(
-                                guard,
-                                row,
-                                col
-                            );
-
-                            if (spottedPlayer) {
-                                return {
-                                    ...guard,
-                                    state: "alert",
-                                    stateLength: 0,
-                                    suspicionRow: null,
-                                    suspicionCol: null
-                                };
-                            }
-
                             return {
                                 ...guard,
                                 stateLength: guard.stateLength - 1
                             };
                         }
+
+                        setDetection(prevDetection => Math.max(prevDetection - 10, 0));
 
                         return {
                             ...guard,
@@ -513,7 +551,6 @@ const Game = () => {
                             suspicionCol: null
                         };
                     }
-
                     const directions = [
                         { name: "north", row: -1, col: 0 },
                         { name: "south", row: 1, col: 0 },
@@ -602,6 +639,10 @@ const Game = () => {
                         col
                     );
 
+                    if(spottedPlayer) {
+                        setDetection(prevDetection => Math.min(prevDetection + 10, 100));
+                    }
+
                     const reachedSuspicionLocation =
                         newRow === guard.suspicionRow &&
                         newCol === guard.suspicionCol;
@@ -617,21 +658,19 @@ const Game = () => {
                                 ? "suspicion"
                                 : guard.state,
 
-                        stateLength: reachedSuspicionLocation
-                            ? 1
-                            : guard.stateLength,
+                        stateLength: spottedPlayer
+                            ? 7
+                            : reachedSuspicionLocation
+                                ? 1
+                                : guard.stateLength,
 
                         suspicionRow: spottedPlayer
                             ? null
-                            : reachedSuspicionLocation
-                                ? guard.suspicionRow
-                                : guard.suspicionRow,
+                            : guard.suspicionRow,
 
                         suspicionCol: spottedPlayer
                             ? null
-                            : reachedSuspicionLocation
-                                ? guard.suspicionCol
-                                : guard.suspicionCol
+                            : guard.suspicionCol
                     };
                 }
 
@@ -783,6 +822,10 @@ const Game = () => {
                     row,
                     col
                 );
+
+                if(spottedPlayer) {
+                    setDetection(prevDetection => Math.min(prevDetection + 10, 100));
+                }
 
                 if (spottedPlayer) {
                     if (camera.state !== "alert") {
@@ -1085,6 +1128,21 @@ const Game = () => {
             }
         });
     }; */
+
+    const getVisionDirection = (
+        row: number,
+        col: number
+    ) => {
+        const guard = guardData.find(
+            guard => guard.row === row && guard.col === col
+        );
+
+        if (!guard || guard.status === "Blind") {
+            return null;
+        }
+
+        return guard.direction;
+    };
 
     const isGuardVision = (row: number, col: number) => {
         for (const guard of guardData) {
@@ -1578,6 +1636,7 @@ const Game = () => {
         }
         if (currentlyMoving && isAvailableMove(row, col)) {
             movePlayer(row, col);
+            setSteps(prevSteps => prevSteps + 1);
         }
     };
 
@@ -1602,6 +1661,77 @@ const Game = () => {
         }
         return "Empty"
     }
+
+    const getTileImage = (row: number, col: number) => {
+        const door = getDoorData(row, col);
+
+        if (door) {
+            if (door.powered) {
+                return door.isOpen
+                    ? require("../assets/openPowerDoor.png")
+                    : require("../assets/closedPowerDoor.png");
+            }
+
+            return door.isOpen
+                ? require("../assets/openDoor.png")
+                : require("../assets/closedDoor.png");
+        }
+
+        if (getWinTile(row, col)) {
+            return require("../assets/winTile.png");
+        }
+
+        if (getPowerGridData(row, col)) {
+            return require("../assets/powerTile.png");
+        }
+
+        return require("../assets/woodFloor2.png");
+    };
+
+    const getWallImage = (
+        row: number,
+        col: number,
+        direction: "north" | "south" | "east" | "west"
+    ) => {
+        const wall = getWallData(row, col);
+
+        if (!wall?.walls.includes(direction)) {
+            return null;
+        }
+
+        if (wall.brittle.some(b => b.direction === direction)) {
+            return {
+                north: require("../assets/northBrittleWall.png"),
+                south: require("../assets/southBrittleWall.png"),
+                east: require("../assets/eastBrittleWall.png"),
+                west: require("../assets/westBrittleWall.png"),
+            }[direction];
+        }
+
+
+        if (wall.powered?.some(p => p.direction === direction)) {
+            if (isWallActive(wall, direction)) {
+                return {
+                    north: require("../assets/northPowerWall.png"),
+                    south: require("../assets/southPowerWall.png"),
+                    east: require("../assets/eastPowerWall.png"),
+                    west: require("../assets/westPowerWall.png"),
+                }[direction];
+            }
+
+
+            return null;
+        }
+
+        return {
+            north: require("../assets/northWall.png"),
+            south: require("../assets/southWall.png"),
+            east: require("../assets/eastWall.png"),
+            west: require("../assets/westWall.png"),
+        }[direction];
+    };
+
+    /*
 
     const getNorthWallStyle = (row: number, col: number) => {
         const wall = getWallData(row, col);
@@ -1687,14 +1817,14 @@ const Game = () => {
         return styles.westWall;
     };
 
+    */
+
     return (
         <View style={styles.container}>
             <View style={styles.controls}>
                 <View>
-                    <Text>{isGuardVision(getPlayerAt[0].row, getPlayerAt[0].col) ? "Spotted!" : "Safe"}</Text>
-                    <Text>
-                        Walls: {getWallData(getPlayerAt[0].row, getPlayerAt[0].col)?.walls.join(", ") ?? "None"}
-                    </Text>
+                    <Text style={styles.controlText}>Steps: {steps}</Text>
+                    <Text style={styles.controlText}>Detection: {detection}%</Text>
                 </View>
                     {currentlyInteracting ? (
                         <>
@@ -1738,7 +1868,8 @@ const Game = () => {
                             return (
                                 <Pressable
                                     key={tile.id}
-                                    style={[
+                                    style={styles.tile}
+                                    /*style={[
                                         styles.tile,
 
                                         powerOut && styles.powerOutTile,
@@ -1763,7 +1894,7 @@ const Game = () => {
                                         getVisuals(tile.row, tile.col) === "WinTile" && styles.winTile,
                                         getVisuals(tile.row, tile.col) === "powerGridTile" && styles.gridPowerSwitchTile,
                                         
-                                    ]}
+                                    ]} */
                                     onPress={() => {
                                         if (!currentlyInteracting) {
                                             handleTilePress(tile.row, tile.col);
@@ -1774,7 +1905,95 @@ const Game = () => {
                                         }
                                     }}
                                 >
-                                    {occupied?.toLocaleLowerCase() === "guard" ? (
+
+                                    <Image
+                                        source={getTileImage(tile.row, tile.col)}
+                                        style={{
+                                            width: tileSize,
+                                            height: tileSize,
+                                            position: "absolute"
+                                        }}
+                                        resizeMode="stretch"
+                                    />
+
+                                    {(["north", "south", "east", "west"] as const).map((direction) => {
+                                        const wallImage = getWallImage(tile.row, tile.col, direction);
+
+                                        if (!wallImage) return null;
+
+                                        return (
+                                            <Image
+                                                key={direction}
+                                                source={wallImage}
+                                                style={{
+                                                    width: '100%',
+                                                    height: '100%',
+                                                    position: 'absolute',
+                                                }}
+                                                resizeMode="contain"
+                                            />
+                                        );
+                                    })}
+
+                                    {getItemImage(tile.row, tile.col) && (
+                                        <Image
+                                            source={getItemImage(tile.row, tile.col)!}
+                                            style={styles.itemImage}
+                                            resizeMode="contain"
+                                        />
+                                    )}
+                                    {cameraData.some(
+                                        camera => camera.row === tile.row && camera.col === tile.col
+                                    ) && (
+                                        <Image
+                                            source={require("../assets/camera.png")}
+                                            style={styles.cameraImage}
+                                            resizeMode="contain"
+                                        />
+                                    )}
+                                    {guardData.some(
+                                        guard => guard.row === tile.row && guard.col === tile.col
+                                    ) && (
+                                        <Image
+                                            source={require("../assets/standardGuard.png")}
+                                            style={styles.guardImage}
+                                            resizeMode="contain"
+                                        />
+                                    )}
+                                    {isGuardVision(tile.row, tile.col) === "yellow" && (
+                                        <View
+                                            pointerEvents="none"
+                                            style={styles.guardVision}
+                                        />
+                                    )}
+
+                                    {isGuardVision(tile.row, tile.col) === "red" && (
+                                        <View
+                                            pointerEvents="none"
+                                            style={styles.alertVision}
+                                        />
+                                    )}
+
+                                    {isCameraVision(tile.row, tile.col) === "yellow" && (
+                                        <View
+                                            pointerEvents="none"
+                                            style={styles.cameraVision}
+                                        />
+                                    )}
+
+                                    {isCameraVision(tile.row, tile.col) === "red" && (
+                                        <View
+                                            pointerEvents="none"
+                                            style={styles.alertCameraVision}
+                                        />
+                                    )}
+                                    {isAvailableMove(tile.row, tile.col) && (
+                                        <View style={styles.moveOverlay} />
+                                    )}
+                                    {isAvailableInteraction(tile.row, tile.col) && (
+                                        <View style={styles.interactionTile} />
+                                    )}
+                                    { /*{occupied?.toLocaleLowerCase() === "guard" ? (
                                         <View
                                             style={[
                                                 styles.guard,
@@ -1815,11 +2034,11 @@ const Game = () => {
                                                         : 13,
                                                     backgroundColor: (occupied?.length ?? 0) > 1 && occupied?.charAt(0) !== "D" ? "gold" : "transparent",
                                                 }}
-                                            >
+                                            > 
                                                 {occupied}
                                             </Text>
                                         </View>
-                                    )}
+                                    )} */}
                                 </Pressable>
                             );
                         })}
@@ -1837,7 +2056,15 @@ const Game = () => {
                         },
                     ]}
                 >
-                    <Text style={{ fontWeight: "bold", backgroundColor: "white", color: "black",}}>YOU</Text>
+                    <Image
+                        source={require("../assets/player.png")}
+                        style={{
+                            width: tileSize * 0.8,
+                            height: tileSize * 0.8,
+                            position: "absolute"
+                        }}
+                        resizeMode="contain"
+                    />
                 </Animated.View>
             </View>
             <Pressable style={styles.toolBelt} onPress={() => {showAvailableInteractions()}}>
@@ -1862,6 +2089,10 @@ const Game = () => {
 };
 
 const styles = StyleSheet.create({
+
+    tileBackground: {
+        ...StyleSheet.absoluteFill
+    },
     player: {
         position: "absolute",
         left: 0,
@@ -1905,6 +2136,12 @@ const styles = StyleSheet.create({
         flexDirection: "column",
     },
 
+    controlText: {
+        fontSize: 16,
+        fontWeight: "bold",
+        marginBottom: 5,
+    },
+
     controlButton: {
         padding: 10,
         margin: 5,
@@ -1920,13 +2157,15 @@ const styles = StyleSheet.create({
 
     // PLAYER MOVEMENT 
 
-    availableTile: {
-        backgroundColor: "#3d78b8",
-        opacity: 0.75,
+    moveOverlay: {
+        position: "absolute",
+        width: "100%",
+        height: "100%",
+        backgroundColor: "rgba(0, 120, 255, 0.35)",
     },
 
     // DOORS 
-
+    /*
     doorTileOpen: {
         backgroundColor: "#4f9d69",
     },
@@ -1940,9 +2179,9 @@ const styles = StyleSheet.create({
     winTile: {
         backgroundColor: "#a65b9f",
     },
-
+    */
     // POWER 
-
+    /*
     powerOutTile: {
         backgroundColor: "#444242",
         borderColor: "#555",
@@ -1956,41 +2195,53 @@ const styles = StyleSheet.create({
     gridPowerSwitchTile: {
         backgroundColor: "#d18a32",
     },
-
+    */  
     // VISION 
 
     guardVision: {
-        backgroundColor: "#fcc80f",
-        opacity: 0.6,
+        position: "absolute",
+        width: "100%",
+        height: "100%",
+        backgroundColor: "rgba(255, 220, 0, 0.70)",
     },
 
     alertVision: {
-        backgroundColor: "#c94b4b",
-        opacity: 0.45,
+        position: "absolute",
+        width: "100%",
+        height: "100%",
+        backgroundColor: "rgba(255, 0, 0, 0.70)",
     },
 
     cameraVision: {
+        position: "absolute",
+        width: "100%",
+        height: "100%",
         backgroundColor: "#026a1d",
-        opacity: 0.9,
+        opacity: 0.7,
     },
 
     alertCameraVision: {
+        position: "absolute",
+        width: "100%",
+        height: "100%",
         backgroundColor: "#c94b4b",
         opacity: 0.45,
     },
 
-
     interactionTile: {
+        position: "absolute",
+        width: "100%",
+        height: "100%",
         backgroundColor: "#7653a6",
-        opacity: 0.65,
+        opacity: 0.70,
     },
 
     // WALLS 
-
+    
     wallTile: {
         backgroundColor: "#7653a6",
     },
-
+    /*
     northWall: {
         borderTopWidth: 3,
         borderTopColor: "#111",
@@ -2051,6 +2302,7 @@ const styles = StyleSheet.create({
         borderLeftColor: "#d18a32",
     },
 
+    */
     // GUARDS 
 
     guard: {
@@ -2085,8 +2337,15 @@ const styles = StyleSheet.create({
         color: "#fff",
         opacity: 0.8,
     },
+
+    guardImage: {
+        position: "absolute",
+        width: "100%",
+        height: "100%",
+    },
     // CAMERAS
 
+    /*
     camText: {
         fontWeight: "bold",
         color: "#fff",
@@ -2104,6 +2363,12 @@ const styles = StyleSheet.create({
         padding: 3,
         borderRadius: 4,
     },
+    */
+    cameraImage: {
+        position: "absolute",
+        width: "100%",
+        height: "100%",
+    },
 
     // TOOLBELT 
 
@@ -2119,6 +2384,11 @@ const styles = StyleSheet.create({
         aspectRatio: 1,
         justifyContent: "center",
         alignItems: "center",
+    },
+    itemImage: {
+        position: "absolute",
+        width: "100%",
+        height: "100%",
     },
 });
 
