@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Animated, Button } from "react-native";
-import { createGrid } from "./grid";
+import { createGrid, COLS } from "./grid";
 import { useRouter } from 'expo-router';
 import { Image } from "react-native";
 
@@ -8,13 +8,16 @@ const Game = () => {
     const router = useRouter();
     const [grid, setGrid] = useState(() => createGrid());
     const [gridSize, setGridSize] = useState(0);
-    const tileSize = gridSize / 7;
+    const tileSize = gridSize / 6;
     const [playerStartingPosition, setPlayerStartingPosition] = useState({ row: 0, col: 4 });
     const [getPlayerAt, setGetPlayerAt] = useState([{ row: playerStartingPosition.row, col: playerStartingPosition.col }]);
     const playerX = useRef(new Animated.Value(0)).current;
     const playerY = useRef(new Animated.Value(0)).current;
     const [steps, setSteps] = useState(0)
     const [detection, setDetection] = useState(0);
+    const [evidence, setEvidence] = useState([
+        { id: 1, type: "Photograph", row: 5, col: 3, isCollected: false },
+    ])
 
     const [playerCaptured, setPlayerCaptured] = useState(false);
     const [toolBeltLength, setToolBeltLength] = useState(3)
@@ -35,14 +38,16 @@ const Game = () => {
             row: 3,
             col: 2,
             isOpen: true,
-            powered: true
+            powered: true,
+            direction: "east"
         },
         {
             id: 2,
             row: 0,
             col: 1,
             isOpen: false,
-            powered: false
+            powered: false,
+            direction: "west"
         },
 
     ]);
@@ -70,27 +75,23 @@ const Game = () => {
         { walls: ["east"], brittle: [], powered: [], row: 1, col: 2 }, 
         { walls: ["east"], brittle: [], powered: [], row: 2, col: 2}, 
         { walls: ["east"], brittle: [], powered: [], row: 4, col: 2},  
-        { walls: ["east"], brittle: [], powered: [], row: 5, col: 2}, 
-        { walls: ["east"], brittle: [{direction: "east", health: 3}], powered: [], row: 6, col: 2},
+        { walls: ["east"], brittle: [{direction: "east", health: 3}], powered: [], row: 5, col: 2},
         // Starter Room
-        { walls: ["south"], brittle: [], row: 1, powered: [{direction: "south", source: "grid"}], col: 4},
-        { walls: ["south", "east"], brittle: [], powered: [], row: 1, col: 5},
+        { walls: ["south", "east"], brittle: [], powered: [{direction: "south", source: "grid"}], row: 1, col: 4},
         //Key Room
-        { walls: ["north"], brittle: [], powered: [], row: 6, col: 5},
-        { walls: ["north"], brittle: [], powered: [], row: 6, col: 3},
-        { walls: ["north", "east"], brittle: [], powered: [], rotating: { source: "grid", direction: "clockwise", state: 0}, row: 6, col: 4},
+        { walls: ["north"], brittle: [], powered: [], row: 5, col: 3},
+        { walls: ["north", "east"], brittle: [], powered: [], rotating: { source: "grid", direction: "clockwise", state: 0}, row: 5, col: 4},
         // Win Room
         { walls: ["south"], brittle: [], powered: [], row: 0, col: 0},
         { walls: ["south"], brittle: [], powered: [{direction: "south", source: "grid"}], row: 0, col: 1}, 
         //Misc
-        { walls: ["east"], brittle: [], powered: [{direction: "east", source: "grid"}], row: 4, col: 4},
         { walls: ["east"], brittle: [], powered: [{direction: "east", source: "grid"}], row: 3, col: 4},
     ]) 
     const [guardData, setGuardData] = useState([
         { id: 1, type: "grunt", state: "patrol", row: 2, col: 0, 
             pattern: "fourway", direction: "north", status: "fine", statusLength: 0, stateLength: 0, suspicionRow: null as number | null,
             suspicionCol: null as number | null,},
-        { id: 2, type: "officer", state: "patrol", row: 4, col: 5, pattern: "wander", direction: "north", status: "fine", statusLength: 0,
+        { id: 2, type: "officer", state: "patrol", row: 2, col: 4, pattern: "wander", direction: "south", status: "fine", statusLength: 0,
         stateLength: 0, suspicionRow: null as number | null, suspicionCol: null as number | null,
         } 
       /* { id: 2, type: "grunt", state: "patrol", row: 4, col: 6, 
@@ -100,7 +101,7 @@ const Game = () => {
     const [cameraData, setCameraData] = useState([
         {
             id: 1,
-            row: 5,
+            row: 4,
             col: 3,
             direction: "north",
             state: "active",
@@ -113,25 +114,21 @@ const Game = () => {
     ]);
     const [itemData, setItemData] = useState([
     //{ type: 'key', row: 1, col: 4, isCollected: false }, 
-    { type: 'blind', row: 1, col: 6, isCollected: false},
-    { type: 'key', row: 6, col: 6, isCollected: false}
+    { type: 'blind', row: 1, col: 5, isCollected: false},
+    { type: 'key', row: 5, col: 5, isCollected: false},
     ])
     const [powerSquareData, setPowerSquareData] = useState([
-    {type: 'grid', row: 5, col: 6},
-    {type: 'grid', row: 6, col: 0}])
+    {type: 'grid', row: 4, col: 5},
+    {type: 'grid', row: 5, col: 0}])
     const [availableInteractions, setAvailableInteractions] = useState<
     { row: number; col: number; type: string }[]>([]);
     const [currentlyInteracting, setCurrentlyInteracting] = useState(false);
-    const [gameActions, setGameActions] = useState<string[]>([]);
 
-    const getActions = () => {
-        if (gameActions.length === 0) {
-            return null
+    useEffect(() => {
+        if (detection >= 100) {
+            setPlayerCaptured(true);
         }
-        else {
-            return gameActions.map((action, index) => <Text key={index}>{action}</Text>);
-        }
-    };
+    }, [detection]);
 
     useEffect(() => {
         if (
@@ -165,17 +162,17 @@ const Game = () => {
     }, [gridSize]);
 
     const handleWin = () => {
-        console.log("You win!");
         router.replace('/win');
     }
 
     const handleCapture = () => {
-        console.log("You are in capture range")
         router.replace('/lose');
     }
     const getOccupied = (row: number, col: number) => {
         const item = getItemData(row, col);
+        const evidenceItem = getEvidenceData(row, col);
 
+        /*
         const camera = getCameraData(row, col);
 
         if (camera) {
@@ -190,6 +187,7 @@ const Game = () => {
                 return "IAC"
             }
         }
+            */
 
         if (getGuardData(row, col)) {
             return "guard";
@@ -211,6 +209,10 @@ const Game = () => {
             if (!powerOut) {
                 return item.type.toUpperCase();
             }
+        }
+
+        if (evidenceItem && !evidenceItem.isCollected) {
+            return evidenceItem.type.toUpperCase();
         }
 
         const wall = getWallData(row, col);
@@ -268,6 +270,24 @@ const Game = () => {
         }
     };
 
+    const getEvidenceImage = (row: number, col: number) => {
+        const evidenceItem = getEvidenceData(row, col);
+
+        if (!evidenceItem || evidenceItem.isCollected) {
+            return null;
+        }
+
+        switch (evidenceItem.type) {
+            case "Photograph":
+                return require("../assets/photoEvidence.png"); 
+            
+            default:
+                return null
+        }
+    }
+
+
+    /*
     const getGuardVisuals = (row: number, col: number, text: boolean) => {
         const guard = guardData.find(
             (guard) => guard.row === row && guard.col === col
@@ -296,10 +316,18 @@ const Game = () => {
 
         return null;
     };
+    */
+
 
     const getItemData = (row: number, col: number) => {
         return itemData.find(
             item => item.row === row && item.col === col
+        );
+    };
+
+    const getEvidenceData = (row: number, col: number) => {
+        return evidence.find(
+            evidence => evidence.row === row && evidence.col === col
         );
     };
 
@@ -349,6 +377,65 @@ const Game = () => {
         }
 
         return true;
+    };
+
+    const isDoorClosed = (
+        row: number,
+        col: number,
+        direction: "north" | "south" | "east" | "west"
+    ) => {
+        const door = doorData.find(
+            door =>
+                door.row === row &&
+                door.col === col &&
+                door.direction === direction
+        );
+
+        return door ? !door.isOpen : false;
+    };
+
+    const isDoorInRange = (
+        door: {
+            row: number;
+            col: number;
+            direction: string;
+        },
+        playerRow: number,
+        playerCol: number
+    ) => {
+        if (door.row === playerRow && door.col === playerCol) {
+            return true;
+        }
+
+        if (door.direction === "north") {
+            return (
+                playerRow === door.row - 1 &&
+                playerCol === door.col
+            );
+        }
+
+        if (door.direction === "south") {
+            return (
+                playerRow === door.row + 1 &&
+                playerCol === door.col
+            );
+        }
+
+        if (door.direction === "east") {
+            return (
+                playerRow === door.row &&
+                playerCol === door.col + 1
+            );
+        }
+
+        if (door.direction === "west") {
+            return (
+                playerRow === door.row &&
+                playerCol === door.col - 1
+            );
+        }
+
+        return false;
     };
 
 
@@ -1216,8 +1303,28 @@ const Game = () => {
                 continue;
             }
 
+            if (row === camera.row && col === camera.col) {
+                return camera.state === "alert"
+                    ? "red"
+                    : "source";
+            }
+
+            if (camera.controlsDoor !== undefined) {
+                const door = doorData.find(
+                    door => door.id === camera.controlsDoor
+                );
+
+                if (door && door.row === row && door.col === col) {
+                    return door.isOpen
+                        ? "source"
+                        : "red";
+                }
+            }
+
             const maxDistance =
-                cameraDistance.find(d => d.type === camera.type)?.distance || 0;
+                cameraDistance.find(
+                    d => d.type === camera.type
+                )?.distance || 0;
 
             let checkRow = camera.row;
             let checkCol = camera.col;
@@ -1266,33 +1373,35 @@ const Game = () => {
 
 
     const notObstructed = (row: number, col: number) => {
-        if(getDoorData(row, col) && !getDoorData(row, col)?.isOpen) {
-            return false;
-        }
-        else if(getGuardData(row, col)) {
+        if(getGuardData(row, col)) {
             return false;
         }
         return true
     }
 
-    const canMove = (fromRow: number, fromCol: number, toRow: number, toCol: number) => {
+    const canMove = (
+        fromRow: number,
+        fromCol: number,
+        toRow: number,
+        toCol: number
+    ) => {
 
-        if (Math.abs(fromRow - toRow) + Math.abs(fromCol - toCol) !== 1) {
+        if (
+            Math.abs(fromRow - toRow) +
+            Math.abs(fromCol - toCol) !== 1
+        ) {
             return false;
-        }
-
-        if(getDoorData(toRow, toCol)?.isOpen === false) {
-            return false
         }
 
         const currentWall = getWallData(fromRow, fromCol);
         const destinationWall = getWallData(toRow, toCol);
 
-
         if (toRow < fromRow) {
             if (
                 isWallActive(currentWall, "north") ||
-                isWallActive(destinationWall, "south")
+                isWallActive(destinationWall, "south") ||
+                isDoorClosed(fromRow, fromCol, "north") ||
+                isDoorClosed(toRow, toCol, "south")
             ) {
                 return false;
             }
@@ -1301,7 +1410,9 @@ const Game = () => {
         if (toRow > fromRow) {
             if (
                 isWallActive(currentWall, "south") ||
-                isWallActive(destinationWall, "north")
+                isWallActive(destinationWall, "north") ||
+                isDoorClosed(fromRow, fromCol, "south") ||
+                isDoorClosed(toRow, toCol, "north")
             ) {
                 return false;
             }
@@ -1310,7 +1421,9 @@ const Game = () => {
         if (toCol > fromCol) {
             if (
                 isWallActive(currentWall, "east") ||
-                isWallActive(destinationWall, "west")
+                isWallActive(destinationWall, "west") ||
+                isDoorClosed(fromRow, fromCol, "east") ||
+                isDoorClosed(toRow, toCol, "west")
             ) {
                 return false;
             }
@@ -1319,7 +1432,9 @@ const Game = () => {
         if (toCol < fromCol) {
             if (
                 isWallActive(currentWall, "west") ||
-                isWallActive(destinationWall, "east")
+                isWallActive(destinationWall, "east") ||
+                isDoorClosed(fromRow, fromCol, "west") ||
+                isDoorClosed(toRow, toCol, "east")
             ) {
                 return false;
             }
@@ -1384,7 +1499,6 @@ const Game = () => {
                     )
                 );
 
-                setGameActions([`Door opened at (${row}, ${col})`]);
                 advanceTurn(row, col)
                 break;
             case "blind":
@@ -1464,23 +1578,25 @@ const Game = () => {
         const player = getPlayerAt[0];
         let tempInteractions = []
 
-        if(getItemExist("key")) {
+        if (getItemExist("key")) {
             const doorInteractions = doorData
-            .filter(
-                door =>
-                    !door.isOpen &&
-                    !door.powered &&
-                    Math.abs(door.row - player.row) +
-                    Math.abs(door.col - player.col) === 1
-            )
-            .map(door => ({
-                row: door.row,
-                col: door.col,
-                type: "door"
-            }));
+                .filter(
+                    door =>
+                        !door.isOpen &&
+                        !door.powered &&
+                        isDoorInRange(
+                            door,
+                            player.row,
+                            player.col
+                        )
+                )
+                .map(door => ({
+                    row: door.row,
+                    col: door.col,
+                    type: "door"
+                }));
 
-            tempInteractions.push(...doorInteractions)
-
+            tempInteractions.push(...doorInteractions);
         }
         
 
@@ -1560,7 +1676,21 @@ const Game = () => {
             setAvailableInteractions([]);
             setCurrentlyInteracting(false);
 
+            const evidenceItem = getEvidenceData(row, col);
+
+            if (evidenceItem && !evidenceItem.isCollected) {
+                setEvidence(prev =>
+                    prev.map(currentEvidence =>
+                        currentEvidence.row === row &&
+                        currentEvidence.col === col
+                            ? { ...currentEvidence, isCollected: true }
+                            : currentEvidence
+                    )
+                );
+            }
+
             if (!powerOut) {
+            
                 const item = getItemData(row, col);
 
                 if (item && !item.isCollected) {
@@ -1611,7 +1741,7 @@ const Game = () => {
 
             const camera = getCameraData(row, col);
 
-            if (camera && camera.state === "active") {
+            if (camera && camera.state !== "inactive") {
                 setCameraData(prev =>
                     prev.map(currentCamera =>
                         currentCamera.id === camera.id
@@ -1619,6 +1749,16 @@ const Game = () => {
                             : currentCamera
                     )
                 );
+
+                if (camera.controlsDoor !== undefined) {
+                    setDoorData(prevDoors =>
+                        prevDoors.map(door =>
+                            door.id === camera.controlsDoor
+                                ? { ...door, isOpen: true }
+                                : door
+                        )
+                    );
+                }
             }
 
             advanceTurn(row, col);
@@ -1649,6 +1789,7 @@ const Game = () => {
         setCurrentlyInteracting(false);
     };
 
+    /*
     const getVisuals = (row: number, col: number) => {
         if (getDoorData(row, col)) {
             return getDoorData(row, col)?.isOpen ? "Opendoor" : "Closeddoor";
@@ -1661,21 +1802,12 @@ const Game = () => {
         }
         return "Empty"
     }
+    */
 
-    const getTileImage = (row: number, col: number) => {
+    const getTileImage = (
+        row: number, 
+        col: number) => {
         const door = getDoorData(row, col);
-
-        if (door) {
-            if (door.powered) {
-                return door.isOpen
-                    ? require("../assets/openPowerDoor.png")
-                    : require("../assets/closedPowerDoor.png");
-            }
-
-            return door.isOpen
-                ? require("../assets/openDoor.png")
-                : require("../assets/closedDoor.png");
-        }
 
         if (getWinTile(row, col)) {
             return require("../assets/winTile.png");
@@ -1684,8 +1816,57 @@ const Game = () => {
         if (getPowerGridData(row, col)) {
             return require("../assets/powerTile.png");
         }
+        if(powerOut) {
+            return require("../assets/woodFloorPowerOut2.png");
+        }
+        return require("../assets/woodFloor1.png");
+        
+    };
 
-        return require("../assets/woodFloor2.png");
+    const getDoorImage = (
+        row: number,
+        col: number,
+        direction: "north" | "south" | "east" | "west"
+    ) => {
+        const door = doorData.find(
+            door =>
+                door.row === row &&
+                door.col === col &&
+                door.direction === direction
+        );
+
+        if (!door) {
+            return null;
+        }
+
+        if (door.powered) {
+            if (door.isOpen) {
+                return {
+                    north: require("../assets/openPowerDoorNorth.png"),
+                    south: require("../assets/openPowerDoorSouth.png"),
+                    east: require("../assets/openPowerDoorEast.png"),
+                    west: require("../assets/openPowerDoorWest.png"),
+                }[direction];
+            }
+
+            return {
+                north: require("../assets/closedPowerDoorNorth.png"),
+                south: require("../assets/closedPowerDoorSouth.png"),
+                east: require("../assets/closedPowerDoorEast.png"),
+                west: require("../assets/closedPowerDoorWest.png"),
+            }[direction];
+        }
+
+        if (door.isOpen) {
+            return null
+        }
+
+        return {
+            north: require("../assets/closedDoorNorth.png"),
+            south: require("../assets/closedDoorSouth.png"),
+            east: require("../assets/closedDoorEast.png"),
+            west: require("../assets/closedDoorWest.png"),
+        }[direction];
     };
 
     const getWallImage = (
@@ -1822,9 +2003,12 @@ const Game = () => {
     return (
         <View style={styles.container}>
             <View style={styles.controls}>
-                <View>
+                <View style={styles.stats}>
                     <Text style={styles.controlText}>Steps: {steps}</Text>
                     <Text style={styles.controlText}>Detection: {detection}%</Text>
+                    <Text style={styles.controlText}>
+                        Evidence: {evidence.filter(e => e.isCollected).length}/{evidence.length}
+                    </Text>
                 </View>
                     {currentlyInteracting ? (
                         <>
@@ -1935,9 +2119,35 @@ const Game = () => {
                                         );
                                     })}
 
+                                    {(["north", "south", "east", "west"] as const).map((direction) => {
+                                        const doorImage = getDoorImage(tile.row, tile.col, direction);
+
+                                        if (!doorImage) return null;
+
+                                        return (
+                                            <Image
+                                                key={direction}
+                                                source={doorImage}
+                                                style={{
+                                                    width: "100%",
+                                                    height: "100%",
+                                                    position: "absolute",
+                                                }}
+                                                resizeMode="contain"
+                                            />
+                                        );
+                                    })}
+
                                     {getItemImage(tile.row, tile.col) && (
                                         <Image
                                             source={getItemImage(tile.row, tile.col)!}
+                                            style={styles.itemImage}
+                                            resizeMode="contain"
+                                        />
+                                    )}
+                                    {getEvidenceImage(tile.row, tile.col) && (
+                                        <Image
+                                            source={getEvidenceImage(tile.row, tile.col)!}
                                             style={styles.itemImage}
                                             resizeMode="contain"
                                         />
@@ -1987,6 +2197,12 @@ const Game = () => {
                                             style={styles.alertCameraVision}
                                         />
                                     )}
+                                    {isCameraVision(tile.row, tile.col) === "source" && (
+                                        <View
+                                            pointerEvents="none"
+                                            style={styles.sourceCameraVision
+}                                        />
+                                    )}
                                     {isAvailableMove(tile.row, tile.col) && (
                                         <View style={styles.moveOverlay} />
                                     )}
@@ -2024,7 +2240,7 @@ const Game = () => {
                                                             ? powerOut
                                                                 ? "white"
                                                                 : "black"
-                                                            : powerOut
+                                                            : powerOutj
                                                                 ? "white"
                                                                 : "#2b1b12",
                                                     fontWeight: "bold",
@@ -2059,8 +2275,8 @@ const Game = () => {
                     <Image
                         source={require("../assets/player.png")}
                         style={{
-                            width: tileSize * 0.8,
-                            height: tileSize * 0.8,
+                            width: tileSize * 0.9,
+                            height: tileSize * 0.9,
                             position: "absolute"
                         }}
                         resizeMode="contain"
@@ -2105,13 +2321,12 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         width: "100%",
-        justifyContent: "center",
         alignItems: "center",
         backgroundColor: "#afafaf",
     },
 
     grid: {
-        width: "90%",
+        width: "96%",
         aspectRatio: 1,
         justifyContent: "center",
         alignItems: "center",
@@ -2133,7 +2348,17 @@ const styles = StyleSheet.create({
     },
 
     controls: {
-        flexDirection: "column",
+        width: "96%",
+        paddingTop: 10,
+        paddingBottom: 8,
+    },
+
+    stats: {
+        width: "96%",
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        paddingVertical: 8,
     },
 
     controlText: {
@@ -2217,7 +2442,8 @@ const styles = StyleSheet.create({
         width: "100%",
         height: "100%",
         backgroundColor: "#026a1d",
-        opacity: 0.7,
+        opacity: 0.5,
+        
     },
 
     alertCameraVision: {
@@ -2226,6 +2452,16 @@ const styles = StyleSheet.create({
         height: "100%",
         backgroundColor: "#c94b4b",
         opacity: 0.45,
+    },
+
+    sourceCameraVision: {
+        position: "absolute",
+        width: "100%",
+        height: "100%",
+        backgroundColor: "#026a1d",
+        opacity: 0.50,
+        borderWidth: 3,
+        borderColor: "#17cbeb"
     },
 
     interactionTile: {

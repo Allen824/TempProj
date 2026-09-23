@@ -1,5 +1,5 @@
-export const ROWS = 7;
-export const COLS = 7;
+export const ROWS = 6;
+export const COLS = 6;
 
 export const TILE_TYPES = {
     EMPTY: "empty",
