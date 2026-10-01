@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Animated, Button } from "react-native";
-import { createGrid, COLS } from "./grid";
+import { createGrid } from "./grid";
 import { useRouter } from 'expo-router';
 import { Image } from "react-native";
 
@@ -14,9 +14,62 @@ const Game = () => {
     const playerX = useRef(new Animated.Value(0)).current;
     const playerY = useRef(new Animated.Value(0)).current;
     const [steps, setSteps] = useState(0)
+    const [score, setScore] = useState(0)
+    const [targetScore, setTargetScore] = useState(500);
+    const [turn, setTurn] = useState(1);
+    const multipliers = [
+        { number: -1, multiplier: 1 },
+        { number: 1, multiplier: 1.2 },
+        { number: 2, multiplier: 1.4 },
+        { number: 3, multiplier: 1.6 },
+        { number: 4, multiplier: 1.8 },
+        { number: 5, multiplier: 2 },
+        { number: 6, multiplier: 2.5 },
+    ];
+
+    const chanceHit = [
+        { number: -1, chance: 1 },
+        { number: 1, chance: 0.95 },
+        { number: 2, chance: 0.8 },
+        { number: 3, chance: 0.7 },
+        { number: 4, chance: 0.6 },
+        { number: 5, chance: 0.5 },
+        { number: 6, chance: 0.4 },
+    ];
+
+    const tripleEvents = [
+        { Text: "Double Down: Your next evidence extraction will give double the score.", id: 1},
+        { Text: "Refesh: Depleted squares will be refereshed with this number", id: 2},
+        { Text: "Escape: Leave the level.", id: 3}
+    ]
+
+    const gameEvents = [
+        { Text: "Security Sweep", turns: 3, firstNumber: 3, secondNumber: 2, thirdNumber: 5},      
+        { Text: "Power Outage", turns: 3, firstNumber: 4, secondNumber: 6, thirdNumber: 3},
+        { Text: "Board Refresh" , turns: 3, firstNumber: 1, secondNumber: 2, thirdNumber: -1},
+    ]
+
+    type EventData = {
+        Text: string;
+        turns: number;
+        firstNumber: number;
+        secondNumber: number;
+        thirdNumber: number;
+    };
+
+    const [currentEvent, setCurrentEvent] = useState<EventData>()
+
+    const [dice, setDice] = useState({ diceOne: 0, diceTwo: 0 });
     const [detection, setDetection] = useState(0);
-    const [evidence, setEvidence] = useState([
-        { id: 1, type: "Photograph", row: 5, col: 3, isCollected: false },
+    type Evidence = {
+        id: number;
+        type: string;
+        row: number;
+        col: number;
+        isCollected: boolean;
+    };
+    const [evidence, setEvidence] = useState<Evidence[]>([
+        //{ id: 1, type: "Photograph", row: 5, col: 3, isCollected: false },
     ])
 
     const [playerCaptured, setPlayerCaptured] = useState(false);
@@ -27,30 +80,17 @@ const Game = () => {
     const [currentlyMoving, setCurrentlyMoving] = useState(false)
     const [moveLength, setMoveLength] = useState(1)
     const [powerOut, setPowerOut] = useState(false)
-    const [switches, setSwitches] = useState({
-        red: false,
-        blue: false
-    });
-    const [winTile, setWinTile] = useState({ row: 0, col:   0 })
-    const [doorData, setDoorData] = useState([
-        {
-            id: 1,
-            row: 3,
-            col: 2,
-            isOpen: true,
-            powered: true,
-            direction: "east"
-        },
-        {
-            id: 2,
-            row: 0,
-            col: 1,
-            isOpen: false,
-            powered: false,
-            direction: "west"
-        },
+    type Door = {
+        id: number;
+        row: number;
+        col: number;
+        isOpen: boolean;
+        powered: boolean;
+        direction: "north" | "south" | "east" | "west";
+    };
 
-    ]);
+    const [doorData, setDoorData] = useState<Door[]>([]);
+
     type Wall = {
         walls: string[];
         brittle: {
@@ -69,37 +109,39 @@ const Game = () => {
         row: number;
         col: number;
     };
-    const [wallData, setWallData] = useState<Wall[]>([
-        // Level Divider
-        { walls: ["east", "south"], brittle: [], powered: [{direction: "east", source: "grid"}], row: 0, col: 2}, 
-        { walls: ["east"], brittle: [], powered: [], row: 1, col: 2 }, 
-        { walls: ["east"], brittle: [], powered: [], row: 2, col: 2}, 
-        { walls: ["east"], brittle: [], powered: [], row: 4, col: 2},  
-        { walls: ["east"], brittle: [{direction: "east", health: 3}], powered: [], row: 5, col: 2},
-        // Starter Room
-        { walls: ["south", "east"], brittle: [], powered: [{direction: "south", source: "grid"}], row: 1, col: 4},
-        //Key Room
-        { walls: ["north"], brittle: [], powered: [], row: 5, col: 3},
-        { walls: ["north", "east"], brittle: [], powered: [], rotating: { source: "grid", direction: "clockwise", state: 0}, row: 5, col: 4},
-        // Win Room
-        { walls: ["south"], brittle: [], powered: [], row: 0, col: 0},
-        { walls: ["south"], brittle: [], powered: [{direction: "south", source: "grid"}], row: 0, col: 1}, 
-        //Misc
-        { walls: ["east"], brittle: [], powered: [{direction: "east", source: "grid"}], row: 3, col: 4},
-    ]) 
-    const [guardData, setGuardData] = useState([
-        { id: 1, type: "grunt", state: "patrol", row: 2, col: 0, 
+    const [wallData, setWallData] = useState<Wall[]>([]
+        // { walls: ["east", "south"], brittle: [], powered: [{direction: "east", source: "grid"}], row: 0, col: 2}, 
+    ) 
+    type Guard = {
+        type: string;
+        state: string;
+        row: number;
+        col: number;
+        pattern: string;
+        direction: string;
+        status: string;
+        statusLength: number;
+        stateLength: number;
+        suspicionRow: number | null;
+        suspicionCol: number | null;
+    }
+    const [guardData, setGuardData] = useState<Guard[]>([
+        /*{ id: 1, type: "grunt", state: "patrol", row: 2, col: 0, 
             pattern: "fourway", direction: "north", status: "fine", statusLength: 0, stateLength: 0, suspicionRow: null as number | null,
-            suspicionCol: null as number | null,},
-        { id: 2, type: "officer", state: "patrol", row: 2, col: 4, pattern: "wander", direction: "south", status: "fine", statusLength: 0,
-        stateLength: 0, suspicionRow: null as number | null, suspicionCol: null as number | null,
-        } 
-      /* { id: 2, type: "grunt", state: "patrol", row: 4, col: 6, 
-            pattern: "fourway", direction: "north", status: "fine", statusLength: 0, stateLength: 0, suspicionRow: null as number | null,
-            suspicionCol: null as number | null,} */
+            suspicionCol: null as number | null,},*/
+
     ])
-    const [cameraData, setCameraData] = useState([
-        {
+    type Camera = {
+        id: number;
+        row: number;
+        col: number;
+        direction: string;
+        state: string;
+        type: string;
+        controlsDoor: number;
+    }
+    const [cameraData, setCameraData] = useState<Camera[]>([
+        /*{
             id: 1,
             row: 4,
             col: 3,
@@ -107,19 +149,37 @@ const Game = () => {
             state: "active",
             type: "door",
             controlsDoor: 1
-        }
+        }*/
     ]);
     const [cameraDistance, setCameraDistance] = useState([
         {type: "door" , distance: 3}
     ]);
-    const [itemData, setItemData] = useState([
-    //{ type: 'key', row: 1, col: 4, isCollected: false }, 
-    { type: 'blind', row: 1, col: 5, isCollected: false},
-    { type: 'key', row: 5, col: 5, isCollected: false},
+
+    type Item = {
+        type: string;
+        row: number;
+        col: number;
+        isCollected: boolean;
+    }
+
+    const [itemData, setItemData] = useState<Item[]>([
+        /*
+        { type: 'blind', row: 1, col: 5, isCollected: false},
+        { type: 'key', row: 5, col: 5, isCollected: false},
+         */
     ])
-    const [powerSquareData, setPowerSquareData] = useState([
-    {type: 'grid', row: 4, col: 5},
-    {type: 'grid', row: 5, col: 0}])
+
+    type PowerSquare = {
+        type: string;
+        row: number;
+        col: number;
+    }
+    const [powerSquareData, setPowerSquareData] = useState<PowerSquare[]>([
+        /*
+        {type: 'grid', row: 4, col: 5},
+        {type: 'grid', row: 5, col: 0}])
+        */
+    ]);
     const [availableInteractions, setAvailableInteractions] = useState<
     { row: number; col: number; type: string }[]>([]);
     const [currentlyInteracting, setCurrentlyInteracting] = useState(false);
@@ -130,14 +190,6 @@ const Game = () => {
         }
     }, [detection]);
 
-    useEffect(() => {
-        if (
-            getPlayerAt[0].row === winTile.row &&
-            getPlayerAt[0].col === winTile.col
-        ) {
-            handleWin();
-        }
-    }, [getPlayerAt]);
 
     useEffect(() => {
         if (playerCaptured) {
@@ -168,26 +220,84 @@ const Game = () => {
     const handleCapture = () => {
         router.replace('/lose');
     }
+
+    const handleDiceRoll = (whichDice: string) => {
+        if (whichDice === "both") {
+            setDice({
+                diceOne: Math.floor(Math.random() * 6) + 1,
+                diceTwo: Math.floor(Math.random() * 6) + 1,
+            })
+        }
+        else if (whichDice === "diceOne") {
+            setDice({
+                ...dice,
+                diceOne: Math.floor(Math.random() * 6) + 1,
+            });
+        }
+        else if (whichDice === "diceTwo") {
+            setDice({
+                ...dice,
+                diceTwo: Math.floor(Math.random() * 6) + 1,
+            });
+        }
+    }
+
+    const handleEvent = () => {
+        console.log("Handling event for turn: " + turn);
+        if(turn === 1) {
+            setCurrentEvent(gameEvents[0])
+        }
+        const playerNumber = grid[getPlayerAt[0].row][getPlayerAt[0].col].number;
+        const diceNumbers = [dice.diceOne, dice.diceTwo, playerNumber];
+
+        setCurrentEvent(prev => {
+            if (!prev) return prev;
+
+            return {
+                ...prev,
+                firstNumber: diceNumbers.includes(prev.firstNumber) ? 10 : prev.firstNumber,
+                secondNumber: diceNumbers.includes(prev.secondNumber) ? 10 : prev.secondNumber,
+                thirdNumber: diceNumbers.includes(prev.thirdNumber) ? 10 : prev.thirdNumber,
+            };
+        });
+        
+    }
+
+    const updateScore = () => {    
+        const tileNumber = grid[getPlayerAt[0].row][getPlayerAt[0].col].numberUsed ? -1 : grid[getPlayerAt[0].row][getPlayerAt[0].col].number;
+        const total = dice.diceOne + dice.diceTwo + tileNumber;
+        const lowestNumber = Math.min(dice.diceOne, dice.diceTwo, tileNumber)
+        const mult = multipliers.find((m) => m.number === lowestNumber)?.multiplier || 1;
+        const risk = chanceHit.find((c) => c.number === lowestNumber)?.chance || 0;
+        const randomNumber = Math.random();
+        console.log("Lowest number: " + lowestNumber + " 3 num: " + dice.diceOne + ", " + dice.diceTwo + ", " + tileNumber)
+        console.log("Previous score: " + score)
+        console.log("Total: " + total + ", Multiplier: " + mult + " Final added: " + (total * mult));
+        if(randomNumber <= risk) {    
+            console.log("Your chance of " + risk * 100 + "% hit! (" + randomNumber + ")");    
+            setScore((prevScore) => Math.round((prevScore + total * mult) * 100) / 100);
+            grid[getPlayerAt[0].row][getPlayerAt[0].col].numberUsed = true;
+        }
+        else {
+            console.log(
+                "Your chance of " + risk * 100 + "% failed to hit (" + randomNumber + ")"
+            );
+
+            const reducedScore = total * mult * 0.25;
+
+            setScore((prevScore) =>
+                Math.round((prevScore + reducedScore) * 100) / 100
+            );
+
+            grid[getPlayerAt[0].row][getPlayerAt[0].col].numberUsed = true;
+        }
+        setTurn((prevTurn) => prevTurn + 1);
+        handleEvent()
+        console.log("***************************")
+    }
     const getOccupied = (row: number, col: number) => {
         const item = getItemData(row, col);
         const evidenceItem = getEvidenceData(row, col);
-
-        /*
-        const camera = getCameraData(row, col);
-
-        if (camera) {
-            if (camera.state === "active") {
-                return "CAM";
-            }
-
-            else if (camera.state === "alert") {
-                return "!CAM!";
-            }
-            else if (camera.state === "inactive") {
-                return "IAC"
-            }
-        }
-            */
 
         if (getGuardData(row, col)) {
             return "guard";
@@ -228,9 +338,6 @@ const Game = () => {
         }
     };
 
-    const getWinTile = (row: number, col: number) => {
-        return winTile.row === row && winTile.col === col;
-    }
     const getDoorData = (row: number, col: number) => {
         return doorData.find((door) => door.row === row && door.col === col);
     }
@@ -286,39 +393,6 @@ const Game = () => {
         }
     }
 
-
-    /*
-    const getGuardVisuals = (row: number, col: number, text: boolean) => {
-        const guard = guardData.find(
-            (guard) => guard.row === row && guard.col === col
-        );
-
-        if (!guard) {
-            return null;
-        }
-
-        let returnText = ''
-
-        if (guard.state === "patrol") {
-            returnText = (text) ? "-" : "neutral"
-            return returnText    
-        }
-
-        if (guard.state === "suspicion") {
-            returnText = (text) ? "?" : "suspicion"
-            return returnText
-        }
-
-        if (guard.state === "alert") {
-            returnText = (text) ? "!" : "alert"
-            return returnText
-        }
-
-        return null;
-    };
-    */
-
-
     const getItemData = (row: number, col: number) => {
         return itemData.find(
             item => item.row === row && item.col === col
@@ -342,18 +416,7 @@ const Game = () => {
             powerSquareData => powerSquareData.row === row && powerSquareData.col === col
         )
     }
-    /*
-    const isPowered = (poweredWall: {
-        source: string;
-        statusOn: boolean;
-    }) => {
-        if (poweredWall.source === "grid") {
-            return !powerOut;
-        }
 
-        return poweredWall.statusOn;
-    };
-    */
     const isWallActive = (
         wall: typeof wallData[number] | undefined,
         direction: string
@@ -453,7 +516,6 @@ const Game = () => {
     }
 
     const advanceTurn = (row: number, col: number) => {
-
         advanceGuards(row, col);
         updateCameras(row, col)
         rotatePoweredWalls();
@@ -501,10 +563,6 @@ const Game = () => {
         setGuardData(prev =>
             prev.map(guard => {
                 if(guard.state === "alert") {
-                    console.log(
-                        `ALERT: Guard ${guard.id} | stateLength=${guard.stateLength} | position=${guard.row},${guard.col}`
-                    );
-                    //console.log(`Guard ${guard.id} is in alert state. State length: ${guard.stateLength}`)
                     let newRow = guard.row;
                     let newCol = guard.col;
 
@@ -583,7 +641,6 @@ const Game = () => {
                     if(guard.stateLength <= 0) {
                         setDetection(prevDetection => Math.max(prevDetection - 10, 0));
                     }
-                    //console.log(`Second state length check: ${guard.stateLength}`)
                     const newStateLength = guard.stateLength - 1;
 
                     return {
@@ -1170,52 +1227,6 @@ const Game = () => {
         return false;
     };
 
-    /*const getGuardVision = (row: number, col: number) => {
-        return guardData.find(guard => {
-            let checkRow = guard.row;
-            let checkCol = guard.col;
-
-            if (guard.status === "Blind") {
-                return false;
-            }
-
-            while (true) {
-                let nextRow = checkRow;
-                let nextCol = checkCol;
-
-                if (guard.direction === "north") {
-                    nextRow--;
-                } else if (guard.direction === "south") {
-                    nextRow++;
-                } else if (guard.direction === "east") {
-                    nextCol++;
-                } else if (guard.direction === "west") {
-                    nextCol--;
-                }
-
-                if (
-                    nextRow < 0 ||
-                    nextRow >= grid.length ||
-                    nextCol < 0 ||
-                    nextCol >= grid[0].length
-                ) {
-                    return false;
-                }
-
-                if (!canMove(checkRow, checkCol, nextRow, nextCol)) {
-                    return false;
-                }
-
-                checkRow = nextRow;
-                checkCol = nextCol;
-
-                if (checkRow === row && checkCol === col) {
-                    return true;
-                }
-            }
-        });
-    }; */
-
     const getVisionDirection = (
         row: number,
         col: number
@@ -1644,6 +1655,7 @@ const Game = () => {
     };
 
     const movePlayer = (row: number, col: number) => {
+        updateScore()
         const playerSize = 40;
 
         const targetX =
@@ -1789,29 +1801,10 @@ const Game = () => {
         setCurrentlyInteracting(false);
     };
 
-    /*
-    const getVisuals = (row: number, col: number) => {
-        if (getDoorData(row, col)) {
-            return getDoorData(row, col)?.isOpen ? "Opendoor" : "Closeddoor";
-        }
-        if(getWinTile(row, col)) {
-            return "WinTile"
-        }
-        if(getPowerGridData(row, col)) {
-            return "powerGridTile"
-        }
-        return "Empty"
-    }
-    */
-
     const getTileImage = (
         row: number, 
         col: number) => {
         const door = getDoorData(row, col);
-
-        if (getWinTile(row, col)) {
-            return require("../assets/winTile.png");
-        }
 
         if (getPowerGridData(row, col)) {
             return require("../assets/powerTile.png");
@@ -1912,94 +1905,6 @@ const Game = () => {
         }[direction];
     };
 
-    /*
-
-    const getNorthWallStyle = (row: number, col: number) => {
-        const wall = getWallData(row, col);
-
-        if (!wall?.walls.includes("north")) {
-            return undefined;
-        }
-
-        if (wall.brittle.some(b => b.direction === "north")) {
-            return styles.northBrittleWall;
-        }
-
-        if (wall.powered?.some(b => b.direction === "north")) {
-            if(isWallActive(wall, "north")) {
-                return styles.northPowerWall
-            }
-            return 
-        }
-
-        return styles.northWall;
-    };
-
-    const getSouthWallStyle = (row: number, col: number) => {
-        const wall = getWallData(row, col);
-
-        if (!wall?.walls.includes("south")) {
-            return undefined;
-        }
-
-        if (wall.brittle.some(b => b.direction === "south")) {
-            return styles.southBrittleWall;
-        }
-
-        if (wall.powered?.some(b => b.direction === "south")) {
-            if(isWallActive(wall, "south")) {
-                return styles.southPowerWall
-            }
-            return 
-        }
-
-        return styles.southWall;
-    };
-
-    const getEastWallStyle = (row: number, col: number) => {
-        const wall = getWallData(row, col);
-
-        if (!wall?.walls.includes("east")) {
-            return undefined;
-        }
-
-        if (wall.brittle.some(b => b.direction === "east")) {
-            return styles.eastBrittleWall;
-        }
-
-        if (wall.powered?.some(b => b.direction === "east")) {
-            if(isWallActive(wall, "east")) {
-                return styles.eastPowerWall
-            }
-            return 
-        }
-
-        return styles.eastWall;
-    };
-
-    const getWestWallStyle = (row: number, col: number) => {
-        const wall = getWallData(row, col);
-
-        if (!wall?.walls.includes("west")) {
-            return undefined;
-        }
-
-        if (wall.brittle.some(b => b.direction === "west")) {
-            return styles.westBrittleWall;
-        }
-
-        if (wall.powered?.some(b => b.direction === "west")) {
-            if(isWallActive(wall, "west")) {
-                return styles.westPowerWall
-            }
-            return 
-        }
-
-        return styles.westWall;
-    };
-
-    */
-
     return (
         <View style={styles.container}>
             <View style={styles.controls}>
@@ -2008,35 +1913,10 @@ const Game = () => {
                     <Text style={styles.controlText}>Detection: {detection}%</Text>
                     <Text style={styles.controlText}>
                         Evidence: {evidence.filter(e => e.isCollected).length}/{evidence.length}
-                    </Text>
+                    </Text> 
+                    <Text style={styles.controlText}>Tile: {grid[getPlayerAt[0].row][getPlayerAt[0].col].number}</Text>
+                    <Text style={styles.controlText}>Score: {score}</Text>
                 </View>
-                    {currentlyInteracting ? (
-                        <>
-                            <Pressable
-                                style={styles.controlButton}
-                                onPress={() => cancelMove()}
-                            >
-                                <Text>Cancel Interaction</Text>
-                            </Pressable>
-                        </>
-                    ) :  currentlyMoving ? (
-                        <>
-                            <Pressable
-                                style={styles.controlButton}
-                                onPress={() => cancelMove()}
-                            >
-                                <Text>Cancel Move</Text>
-                            </Pressable>
-                        </>
-                    ) : (
-                        <>
-                            <View
-                                style={styles.controlButton}
-                            >
-                                <Text></Text>
-                            </View>
-                        </>
-                    )}
             </View>
         <View
             style={styles.grid}
@@ -2052,33 +1932,7 @@ const Game = () => {
                             return (
                                 <Pressable
                                     key={tile.id}
-                                    style={styles.tile}
-                                    /*style={[
-                                        styles.tile,
-
-                                        powerOut && styles.powerOutTile,
-                                        !powerOut && styles.powerOnTile,
-
-                                        getNorthWallStyle(tile.row, tile.col),
-                                        getSouthWallStyle(tile.row, tile.col),
-                                        getEastWallStyle(tile.row, tile.col),
-                                        getWestWallStyle(tile.row, tile.col),
-
-                                        isCameraVision(tile.row, tile.col) === "yellow" && styles.cameraVision,
-                                        isCameraVision(tile.row, tile.col) === "red" && styles.alertCameraVision,
-
-                                        isGuardVision(tile.row, tile.col) === "yellow" && styles.guardVision,
-                                        isGuardVision(tile.row, tile.col) === "red" && styles.alertVision,
-
-                                        isAvailableMove(tile.row, tile.col) && styles.availableTile,
-                                        isAvailableInteraction(tile.row, tile.col) && styles.interactionTile,
-          
-                                        getVisuals(tile.row, tile.col) === "Opendoor" && styles.doorTileOpen,
-                                        getVisuals(tile.row, tile.col) === "Closeddoor" && styles.doorTileClosed,
-                                        getVisuals(tile.row, tile.col) === "WinTile" && styles.winTile,
-                                        getVisuals(tile.row, tile.col) === "powerGridTile" && styles.gridPowerSwitchTile,
-                                        
-                                    ]} */
+                                    style={styles.tile}                                    
                                     onPress={() => {
                                         if (!currentlyInteracting) {
                                             handleTilePress(tile.row, tile.col);
@@ -2089,7 +1943,7 @@ const Game = () => {
                                         }
                                     }}
                                 >
-
+                            
                                     <Image
                                         source={getTileImage(tile.row, tile.col)}
                                         style={{
@@ -2203,58 +2057,22 @@ const Game = () => {
                                             style={styles.sourceCameraVision
 }                                        />
                                     )}
+                                    <View style={styles.tileTextView}>
+                                        {grid[tile.row][tile.col].numberUsed ? (
+                                            <Text style={styles.tileTextUsed}>-1</Text>
+                                        ) : (
+                                            <Text style={styles.tileText}>{grid[tile.row][tile.col].number}</Text>     
+                                        )}
+
+                                    </View>
+                                    
                                     {isAvailableMove(tile.row, tile.col) && (
                                         <View style={styles.moveOverlay} />
                                     )}
                                     {isAvailableInteraction(tile.row, tile.col) && (
                                         <View style={styles.interactionTile} />
                                     )}
-                                    { /*{occupied?.toLocaleLowerCase() === "guard" ? (
-                                        <View
-                                            style={[
-                                                styles.guard,
-                                                getGuardVisuals(tile.row, tile.col, false) === 'neutral' &&
-                                                    styles.guardNeutral,
-                                                getGuardVisuals(tile.row, tile.col, false) === 'suspicion' &&
-                                                    styles.guardSuspicious,
-                                                getGuardVisuals(tile.row, tile.col, false) === 'alert' &&
-                                                    styles.guardAlert
-                                            ]}
-                                        >
-                                            <Text style={styles.guardText}>
-                                                {getGuardVisuals(tile.row, tile.col, true)}
-                                            </Text>
-                                        </View>
-                                    ) : occupied?.toLowerCase() === "cam" || occupied?.toLowerCase() === "!cam!" || occupied?.toLowerCase() === "iac" ? (
-                                        <View>
-                                            <Text style={[occupied?.toLowerCase() === "iac" ? styles.camTextOff : styles.camText]}>
-                                                {occupied}
-                                            </Text>
-                                        </View>
-                                    ) : (
-                                        <View>
-                                            <Text
-                                                style={{
-                                                    color:
-                                                        occupied === "↻" || occupied === "↺"
-                                                            ? powerOut
-                                                                ? "white"
-                                                                : "black"
-                                                            : powerOutj
-                                                                ? "white"
-                                                                : "#2b1b12",
-                                                    fontWeight: "bold",
-                                                    fontSize: 
-                                                        occupied === "↻" || occupied === "↺"
-                                                        ? 25 
-                                                        : 13,
-                                                    backgroundColor: (occupied?.length ?? 0) > 1 && occupied?.charAt(0) !== "D" ? "gold" : "transparent",
-                                                }}
-                                            > 
-                                                {occupied}
-                                            </Text>
-                                        </View>
-                                    )} */}
+                            
                                 </Pressable>
                             );
                         })}
@@ -2283,6 +2101,40 @@ const Game = () => {
                     />
                 </Animated.View>
             </View>
+            <View style={styles.threeNumbers}>
+                <View style={styles.numberContainer}>
+                    <Text style={{fontSize: 25}}>Dice One: {dice.diceOne}</Text> 
+                    <Pressable onPress={() => handleDiceRoll("diceOne")}>
+                        <Text style={{fontSize: 25, fontWeight: "bold"}}>Roll Dice One</Text>
+                    </Pressable>
+                </View>
+                <View style={styles.numberContainer}>
+                    <Text style={{fontSize: 25}}>Dice Two: {dice.diceTwo}</Text>
+                    <Pressable onPress={() => handleDiceRoll("diceTwo")}>
+                        <Text style={{fontSize: 25, fontWeight: "bold"}}>Roll Dice Two</Text>
+                    </Pressable>
+                </View>
+                <View style={styles.numberContainer}>
+                    <Pressable onPress={() => handleDiceRoll("both")}>
+                        <Text style={{fontSize: 25, fontWeight: "bold"}}>Roll Both</Text>
+                    </Pressable>
+                </View>
+            </View>
+            <View style={styles.threeNumbers}>
+                <View style={styles.numberContainer}>
+                    <Text style={{fontSize: 25}}>{currentEvent?.firstNumber}</Text> 
+                </View>
+                <View style={styles.numberContainer}>
+                    <Text style={{fontSize: 25}}>{currentEvent?.secondNumber}</Text>
+                </View>
+                <View style={styles.numberContainer}>
+                    <Text style={{fontSize: 25}}>{currentEvent?.thirdNumber}</Text>
+                </View>
+            </View>
+            <View>
+                <Text>{currentEvent?.Text}</Text>
+            </View>
+            {/*
             <Pressable style={styles.toolBelt} onPress={() => {showAvailableInteractions()}}>
                 {Array.from({ length: toolBeltLength }).map((_, index) => {
                     const item = toolBeltItems[index];
@@ -2300,6 +2152,7 @@ const Game = () => {
                     );
                 })}
             </Pressable>
+            */}
         </View>
     );
 };
@@ -2347,6 +2200,24 @@ const styles = StyleSheet.create({
         backgroundColor: "#303030",
     },
 
+    tileTextView: {
+        backgroundColor: "rgba(0, 0, 0)",
+        justifyContent: "center",
+        alignItems: "center",   
+    },
+
+    tileText: {
+        fontSize: 50,
+        fontWeight: "bold",
+        color: "#fff",
+    },
+
+    tileTextUsed: {
+        fontSize: 50,
+        fontWeight: "bold",
+        color: "#f00",
+    },
+
     controls: {
         width: "96%",
         paddingTop: 10,
@@ -2380,6 +2251,19 @@ const styles = StyleSheet.create({
         fontWeight: "bold",
     },
 
+    threeNumbers: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        width: "96%",
+        paddingVertical: 8,
+    },
+
+    numberContainer: {
+        flexDirection: "column",
+        justifyContent: "space-between",
+        paddingVertical: 8,
+    },
+
     // PLAYER MOVEMENT 
 
     moveOverlay: {
@@ -2389,38 +2273,6 @@ const styles = StyleSheet.create({
         backgroundColor: "rgba(0, 120, 255, 0.35)",
     },
 
-    // DOORS 
-    /*
-    doorTileOpen: {
-        backgroundColor: "#4f9d69",
-    },
-
-    doorTileClosed: {
-        backgroundColor: "#a84c4c",
-    },
-
-    // WIN 
-
-    winTile: {
-        backgroundColor: "#a65b9f",
-    },
-    */
-    // POWER 
-    /*
-    powerOutTile: {
-        backgroundColor: "#444242",
-        borderColor: "#555",
-    },
-
-    powerOnTile: {
-        backgroundColor: "#8a5126",
-        borderColor: "#222",
-    },
-
-    gridPowerSwitchTile: {
-        backgroundColor: "#d18a32",
-    },
-    */  
     // VISION 
 
     guardVision: {
@@ -2477,68 +2329,7 @@ const styles = StyleSheet.create({
     wallTile: {
         backgroundColor: "#7653a6",
     },
-    /*
-    northWall: {
-        borderTopWidth: 3,
-        borderTopColor: "#111",
-    },
 
-    northBrittleWall: {
-        borderTopWidth: 3,
-        borderTopColor: "#c94b4b",
-    },
-
-    northPowerWall: {
-        borderTopWidth: 3,
-        borderTopColor: "#d18a32",
-    },
-
-    southWall: {
-        borderBottomWidth: 3,
-        borderBottomColor: "#111",
-    },
-
-    southBrittleWall: {
-        borderBottomWidth: 3,
-        borderBottomColor: "#c94b4b",
-    },
-
-    southPowerWall: {
-        borderBottomWidth: 3,
-        borderBottomColor: "#d18a32",
-    },
-
-    eastWall: {
-        borderRightWidth: 3,
-        borderRightColor: "#111",
-    },
-
-    eastBrittleWall: {
-        borderRightWidth: 3,
-        borderRightColor: "#c94b4b",
-    },
-
-    eastPowerWall: {
-        borderRightWidth: 3,
-        borderRightColor: "#d18a32",
-    },
-
-    westWall: {
-        borderLeftWidth: 3,
-        borderLeftColor: "#111",
-    },
-
-    westBrittleWall: {
-        borderLeftWidth: 3,
-        borderLeftColor: "#c94b4b",
-    },
-
-    westPowerWall: {
-        borderLeftWidth: 3,
-        borderLeftColor: "#d18a32",
-    },
-
-    */
     // GUARDS 
 
     guard: {
@@ -2581,25 +2372,6 @@ const styles = StyleSheet.create({
     },
     // CAMERAS
 
-    /*
-    camText: {
-        fontWeight: "bold",
-        color: "#fff",
-        opacity: 0.8,
-        backgroundColor: "#01ad77",
-        padding: 3,
-        borderRadius: 4,
-    },
-
-    camTextOff: {
-        fontWeight: "bold",
-        color: "#fff",
-        opacity: 0.8,
-        backgroundColor: "#d66464",
-        padding: 3,
-        borderRadius: 4,
-    },
-    */
     cameraImage: {
         position: "absolute",
         width: "100%",
@@ -2628,4 +2400,4 @@ const styles = StyleSheet.create({
     },
 });
 
-export default Game;
+export default Game;    
