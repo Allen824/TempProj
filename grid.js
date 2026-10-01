@@ -1,15 +1,6 @@
 export const ROWS = 6;
 export const COLS = 6;
 
-export const TILE_TYPES = {
-    EMPTY: "empty",
-    PLAYER: "player",
-    WALL: "wall",
-    GUARD: "guard",
-    TRAP: "trap",
-    OBJECTIVE: "objective",
-};
-
 export function createGrid() {
     const grid = [];
 
@@ -32,17 +23,7 @@ function createTile(row, col) {
         row,
         col,
 
-        type: TILE_TYPES.EMPTY,
-
-        walkable: true,
-
-        discovered: false,
-
-        player: false,
-
-        guard: null,
-        trap: null,
-        item: null,
-        objective: null,
+        number: Math.floor(Math.random() * 6) + 1,
+        numberUsed: false
     };
 }

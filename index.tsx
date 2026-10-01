@@ -28,6 +28,7 @@ useEffect(() => {
             require("../assets/closedPowerDoorSouth.png"),
 
             require("../assets/standardGuard.png"),
+            require("../assets/player.png"),
             require("../assets/keyItem.png"),
             require("../assets/blindItem.png"),
             require("../assets/photoEvidence.png"),
